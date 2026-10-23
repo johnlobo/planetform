@@ -26,13 +26,13 @@ func get_hint() -> String:
 	return "%s (%d) · clic para recoger" % [Game.RESOURCE_NAMES[resource_type], amount]
 
 
-func harvest(power: int) -> int:
+# Un clic recoge el depósito entero; el taladro mejorado multiplica lo recogido.
+func harvest(multiplier: int) -> int:
 	if amount <= 0:
 		return 0
-	var taken := mini(power, amount)
-	amount -= taken
-	if amount <= 0:
-		_deplete()
+	var taken := amount * multiplier
+	amount = 0
+	_deplete()
 	return taken
 
 
