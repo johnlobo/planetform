@@ -10,7 +10,7 @@ const Hud := preload("res://scripts/hud.gd")
 const WORLD_SIZE := 160.0
 const GRID := 64 # cuadros por lado del terreno
 const HEIGHT := 6.0
-const RESOURCE_COUNTS := {"hierro": 40, "silicio": 25, "hielo": 25}
+const RESOURCE_COUNTS := {"hierro": 40, "silicio": 25, "hielo": 25, "cobre": 20}
 const PLANT_COUNT := 80
 
 var noise := FastNoiseLite.new()
@@ -147,6 +147,7 @@ func _spawn_resources() -> void:
 		"hierro": _resource_def(_low_poly_rock(), Color(0.55, 0.35, 0.25), _sphere_shape(0.8), Vector3(0, 0.4, 0)),
 		"silicio": _resource_def(_crystal(), Color(0.55, 0.85, 0.95), _box_shape(Vector3(0.6, 1.6, 0.6)), Vector3(0, 0.8, 0)),
 		"hielo": _resource_def(_ice_slab(), Color(0.85, 0.95, 1.0), _box_shape(Vector3(1.6, 0.4, 1.6)), Vector3(0, 0.2, 0)),
+		"cobre": _resource_def(_low_poly_rock(), Color(0.3, 0.65, 0.5), _sphere_shape(0.8), Vector3(0, 0.4, 0)),
 	}
 	for type in RESOURCE_COUNTS:
 		var def: Dictionary = defs[type]

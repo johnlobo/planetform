@@ -43,7 +43,6 @@ func _ready() -> void:
 	oxygen_title.text = "Tu oxígeno"
 	oxygen_box.add_child(oxygen_title)
 	oxygen_bar = ProgressBar.new()
-	oxygen_bar.max_value = Game.PLAYER_O2_MAX
 	oxygen_bar.custom_minimum_size = Vector2(300, 20)
 	oxygen_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	oxygen_box.add_child(oxygen_bar)
@@ -65,11 +64,12 @@ func _input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	oxygen_bar.max_value = Game.player_o2_max()
 	oxygen_bar.value = Game.player_oxygen
 	hint_label.text = Game.hint
-	planet_label.text = "Etapa: %s\nOxígeno: %.1f %%\nTemperatura: %.1f %%\nÍndice: %.1f %%\nEnergía: %d paneles / %d máquinas" % [
+	planet_label.text = "Etapa: %s\nOxígeno: %.1f %%\nTemperatura: %.1f %%\nÍndice: %.1f %%\nEnergía: %d producida / %d necesaria" % [
 		Game.STAGES[Game.stage]["name"], Game.oxygen, Game.temperature,
-		Game.terraform_index(), Game.panels, Game.generators + Game.heaters]
+		Game.terraform_index(), Game.energy_supply(), Game.energy_demand()]
 	if message_timer > 0.0:
 		message_timer -= delta
 		if message_timer <= 0.0 and not Game.finished:
@@ -124,6 +124,8 @@ func _refresh_inventory() -> void:
 		lines.append("%s: %d" % [Game.RESOURCE_NAMES[id], Game.inventory[id]])
 	if Game.has_drill:
 		lines.append("Taladro mejorado")
+	if Game.has_tank:
+		lines.append("Tanque de oxígeno")
 	inventory_label.text = "\n".join(lines)
 	if craft_panel and craft_panel.visible:
 		_refresh_craft_list()
@@ -139,7 +141,7 @@ func _refresh_craft_list() -> void:
 		for res in cost:
 			parts.append("%d %s" % [cost[res], String(Game.RESOURCE_NAMES[res]).to_lower()])
 		var text := "%s · %s" % [recipe["name"], " + ".join(parts)]
-		if recipe["kind"] == "building" and id != "panel":
+		if recipe["kind"] == "building" and int(Game.MACHINES[id]["energy"]) < 0:
 			text += " + energía"
 		if not Game.is_unlocked(id):
 			text = "%s (se desbloquea en %s)" % [recipe["name"], Game.STAGES[int(recipe["stage"])]["name"]]
