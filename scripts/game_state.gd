@@ -37,6 +37,8 @@ const MACHINE_RATE := 0.05 # puntos de métrica por segundo y máquina activa
 const PLAYER_O2_MAX := 100.0
 const PLAYER_O2_DRAIN := 0.5 # por segundo, con el planeta sin oxígeno
 const BOTTLE_REFILL := 50.0
+const SAVE_PATH := "user://partida.json"
+const AUTOSAVE_TIME := 15.0
 
 var inventory := {"hierro": 0, "silicio": 0, "hielo": 0, "botella": 0}
 var has_drill := false
@@ -50,13 +52,29 @@ var stage := 0
 var finished := false
 var ui_open := false
 var hint := ""
+# Construcciones colocadas: [{"kind", "x", "y", "z", "rot"}], para el guardado.
+var machines: Array = []
+# Posición del jugador leída de la partida guardada, o null si no hay.
+var player_position = null
+var _autosave_timer := 0.0
+var _skip_next_load := false
+# En el navegador el cierre de la pestaña no avisa al juego; se guarda al ocultarla.
+var _js_visibility_callback
 
 
 func _ready() -> void:
 	_setup_input()
+	if OS.has_feature("web"):
+		_js_visibility_callback = JavaScriptBridge.create_callback(_on_web_visibility_change)
+		var document = JavaScriptBridge.get_interface("document")
+		document.addEventListener("visibilitychange", _js_visibility_callback)
 
 
 func _process(delta: float) -> void:
+	_autosave_timer += delta
+	if _autosave_timer >= AUTOSAVE_TIME:
+		_autosave_timer = 0.0
+		save_game()
 	if finished:
 		return
 	var ratio := energy_ratio()
@@ -133,7 +151,12 @@ func use_bottle() -> void:
 	inventory_changed.emit()
 
 
-func register_machine(kind: String) -> void:
+func register_machine(kind: String, pos: Vector3, rot: float) -> void:
+	machines.append({"kind": kind, "x": pos.x, "y": pos.y, "z": pos.z, "rot": rot})
+	_count_machine(kind)
+
+
+func _count_machine(kind: String) -> void:
 	match kind:
 		"panel":
 			panels += 1
@@ -154,11 +177,108 @@ func _update_stage() -> void:
 		stage = new_stage
 		stage_changed.emit(stage)
 		inventory_changed.emit() # refresca recetas desbloqueadas
+		save_game()
 		if stage == STAGES.size() - 1:
 			finished = true
 			message.emit("¡El planeta es habitable! Fin del prototipo.")
 		else:
 			message.emit("Nueva etapa: %s" % STAGES[stage]["name"])
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		save_game()
+
+
+func _on_web_visibility_change(_args: Array) -> void:
+	var document = JavaScriptBridge.get_interface("document")
+	if document.hidden:
+		save_game()
+
+
+func save_game() -> void:
+	var data := {
+		"version": 1,
+		"inventory": inventory,
+		"has_drill": has_drill,
+		"oxygen": oxygen,
+		"temperature": temperature,
+		"player_oxygen": player_oxygen,
+		"stage": stage,
+		"finished": finished,
+		"machines": machines,
+	}
+	var player := get_tree().get_first_node_in_group("player") as Node3D
+	if player:
+		var p := player.global_position
+		data["player"] = [p.x, p.y, p.z]
+	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if file == null:
+		push_warning("No se pudo guardar la partida: %s" % FileAccess.get_open_error())
+		return
+	file.store_string(JSON.stringify(data))
+
+
+## Carga la partida guardada, si existe. Devuelve true si se ha cargado.
+func load_game() -> bool:
+	if _skip_next_load:
+		_skip_next_load = false
+		return false
+	if not FileAccess.file_exists(SAVE_PATH):
+		return false
+	var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if file == null:
+		return false
+	var data = JSON.parse_string(file.get_as_text())
+	if typeof(data) != TYPE_DICTIONARY:
+		push_warning("La partida guardada está dañada; se empieza de cero.")
+		return false
+	_reset_state()
+	var saved_inventory: Dictionary = data.get("inventory", {})
+	for id in inventory:
+		inventory[id] = int(saved_inventory.get(id, 0))
+	has_drill = bool(data.get("has_drill", false))
+	oxygen = float(data.get("oxygen", 0.0))
+	temperature = float(data.get("temperature", 0.0))
+	player_oxygen = float(data.get("player_oxygen", PLAYER_O2_MAX))
+	stage = int(data.get("stage", 0))
+	finished = bool(data.get("finished", false))
+	for m in data.get("machines", []):
+		if typeof(m) == TYPE_DICTIONARY and RECIPES.has(m.get("kind", "")):
+			machines.append(m)
+			_count_machine(String(m["kind"]))
+	var p = data.get("player")
+	if p is Array and p.size() == 3:
+		player_position = Vector3(float(p[0]), float(p[1]), float(p[2]))
+	return true
+
+
+## Borra la partida guardada y vuelve a empezar desde cero.
+func new_game() -> void:
+	if FileAccess.file_exists(SAVE_PATH):
+		DirAccess.remove_absolute(SAVE_PATH)
+	_reset_state()
+	# Por si el archivo no se pudo borrar, la escena nueva no debe cargarlo.
+	_skip_next_load = true
+	get_tree().reload_current_scene()
+
+
+func _reset_state() -> void:
+	for id in inventory:
+		inventory[id] = 0
+	has_drill = false
+	panels = 0
+	generators = 0
+	heaters = 0
+	oxygen = 0.0
+	temperature = 0.0
+	player_oxygen = PLAYER_O2_MAX
+	stage = 0
+	finished = false
+	ui_open = false
+	machines = []
+	player_position = null
+	_autosave_timer = 0.0
 
 
 func _setup_input() -> void:
@@ -170,6 +290,7 @@ func _setup_input() -> void:
 	_add_key("craft", [KEY_TAB, KEY_C])
 	_add_key("use_bottle", [KEY_Q])
 	_add_key("release_mouse", [KEY_ESCAPE])
+	_add_key("new_game", [KEY_F9])
 
 
 func _add_key(action: String, keys: Array) -> void:

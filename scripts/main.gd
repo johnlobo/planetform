@@ -30,15 +30,21 @@ func _ready() -> void:
 	noise.seed = 7
 	noise.frequency = 0.02
 	rng.seed = 42
+	var loaded := Game.load_game()
 	_setup_gradients()
 	_build_environment()
 	_build_terrain()
 	_build_water()
 	_spawn_resources()
+	for m in Game.machines:
+		_spawn_machine(String(m["kind"]), Vector3(float(m["x"]), float(m["y"]), float(m["z"])), float(m["rot"]))
 	_spawn_player()
 	add_child(Hud.new())
 	Game.place_requested.connect(_on_place_requested)
 	Game.stage_changed.connect(_on_stage_changed)
+	if loaded:
+		_on_stage_changed(Game.stage)
+		Game.message.emit("Partida cargada. F9 para empezar una nueva.")
 
 
 func _process(_delta: float) -> void:
@@ -154,9 +160,13 @@ func _spawn_resources() -> void:
 
 
 func _spawn_player() -> void:
+	var base := Vector3(0.0, height_at(0.0, 0.0) + 1.0, 0.0)
 	player = Player.new()
-	player.position = Vector3(0.0, height_at(0.0, 0.0) + 1.0, 0.0)
+	player.position = base
+	if Game.player_position != null:
+		player.position = Game.player_position
 	add_child(player)
+	player.spawn_point = base # si se ahoga, vuelve a la base y no al punto guardado
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
@@ -165,12 +175,16 @@ func _on_place_requested(kind: String) -> void:
 	forward.y = 0.0
 	var pos := player.global_position + forward.normalized() * 4.0
 	pos.y = height_at(pos.x, pos.z)
+	_spawn_machine(kind, pos, player.rotation.y)
+	Game.register_machine(kind, pos, player.rotation.y)
+
+
+func _spawn_machine(kind: String, pos: Vector3, rot: float) -> void:
 	var machine := Machine.new()
 	machine.setup(kind)
 	machine.position = pos
-	machine.rotation.y = player.rotation.y
+	machine.rotation.y = rot
 	add_child(machine)
-	Game.register_machine(kind)
 
 
 func _on_stage_changed(stage: int) -> void:
