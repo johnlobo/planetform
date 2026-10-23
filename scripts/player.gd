@@ -16,13 +16,13 @@ func _ready() -> void:
 	var shape := CollisionShape3D.new()
 	var capsule := CapsuleShape3D.new()
 	capsule.radius = 0.4
-	capsule.height = 1.8
+	capsule.height = 1.6
 	shape.shape = capsule
-	shape.position.y = 0.9
+	shape.position.y = 0.8
 	add_child(shape)
 
 	camera = Camera3D.new()
-	camera.position.y = 1.6
+	camera.position.y = 1.35
 	camera.far = 300.0
 	add_child(camera)
 	camera.make_current()
@@ -98,6 +98,7 @@ func _interact() -> void:
 		var amount: int = target.harvest(2 if Game.has_drill else 1)
 		if amount > 0:
 			Game.add_item(target.resource_type, amount)
+			Game.message.emit("+%d %s" % [amount, Game.RESOURCE_NAMES[target.resource_type]])
 
 
 func _on_suffocated() -> void:

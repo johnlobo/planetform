@@ -38,12 +38,14 @@ func _ready() -> void:
 	oxygen_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	oxygen_box.position += Vector2(-150, -72)
 	oxygen_box.custom_minimum_size = Vector2(300, 0)
+	oxygen_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var oxygen_title := Label.new()
 	oxygen_title.text = "Tu oxígeno"
 	oxygen_box.add_child(oxygen_title)
 	oxygen_bar = ProgressBar.new()
 	oxygen_bar.max_value = Game.PLAYER_O2_MAX
 	oxygen_bar.custom_minimum_size = Vector2(300, 20)
+	oxygen_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	oxygen_box.add_child(oxygen_bar)
 	add_child(oxygen_box)
 
@@ -76,6 +78,8 @@ func _process(delta: float) -> void:
 
 func _label(preset: int, offset: Vector2) -> Label:
 	var label := Label.new()
+	# Ninguna etiqueta debe quedarse con los clics destinados al juego.
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.set_anchors_and_offsets_preset(preset)
 	label.position += offset
 	label.add_theme_color_override("font_outline_color", Color.BLACK)
