@@ -13,6 +13,7 @@ const RESOURCE_NAMES := {
 	"hierro": "Hierro",
 	"silicio": "Silicio",
 	"hielo": "Hielo",
+	"cobre": "Cobre",
 	"botella": "Botella de oxígeno",
 }
 
@@ -23,6 +24,22 @@ const RECIPES := {
 	"generador": {"name": "Generador de oxígeno", "cost": {"hierro": 3, "hielo": 2}, "kind": "building", "stage": 0},
 	"calentador": {"name": "Calentador", "cost": {"hierro": 4, "silicio": 1}, "kind": "building", "stage": 1},
 	"botella": {"name": "Botella de oxígeno", "cost": {"hielo": 1}, "kind": "consumable", "stage": 0},
+	# Deshielo
+	"tanque": {"name": "Tanque de oxígeno", "cost": {"hierro": 2, "cobre": 2}, "kind": "tool", "stage": 2},
+	"turbina": {"name": "Turbina eólica", "cost": {"hierro": 3, "cobre": 2}, "kind": "building", "stage": 2},
+	"generador_avanzado": {"name": "Generador avanzado", "cost": {"hierro": 4, "cobre": 3, "hielo": 3}, "kind": "building", "stage": 2},
+	"calentador_avanzado": {"name": "Calentador avanzado", "cost": {"hierro": 4, "cobre": 3, "silicio": 2}, "kind": "building", "stage": 2},
+}
+
+# Efecto de cada construcción: energía que da (+) o gasta (-) y cuánto sube
+# cada métrica del planeta, en múltiplos de MACHINE_RATE.
+const MACHINES := {
+	"panel": {"energy": 1, "oxygen": 0, "temperature": 0},
+	"turbina": {"energy": 3, "oxygen": 0, "temperature": 0},
+	"generador": {"energy": -1, "oxygen": 1, "temperature": 0},
+	"calentador": {"energy": -1, "oxygen": 0, "temperature": 1},
+	"generador_avanzado": {"energy": -2, "oxygen": 3, "temperature": 0},
+	"calentador_avanzado": {"energy": -2, "oxygen": 0, "temperature": 3},
 }
 
 const STAGES := [
@@ -35,16 +52,17 @@ const STAGES := [
 # Valores provisionales: se ajustarán al probar el prototipo.
 const MACHINE_RATE := 0.05 # puntos de métrica por segundo y máquina activa
 const PLAYER_O2_MAX := 100.0
+const TANK_O2_MAX := 200.0
 const PLAYER_O2_DRAIN := 0.5 # por segundo, con el planeta sin oxígeno
 const BOTTLE_REFILL := 50.0
 const SAVE_PATH := "user://partida.json"
 const AUTOSAVE_TIME := 15.0
 
-var inventory := {"hierro": 0, "silicio": 0, "hielo": 0, "botella": 0}
+var inventory := {"hierro": 0, "silicio": 0, "hielo": 0, "cobre": 0, "botella": 0}
 var has_drill := false
-var panels := 0
-var generators := 0
-var heaters := 0
+var has_tank := false
+# Número de construcciones colocadas de cada tipo.
+var machine_counts := {}
 var oxygen := 0.0
 var temperature := 0.0
 var player_oxygen := PLAYER_O2_MAX
@@ -78,15 +96,15 @@ func _process(delta: float) -> void:
 	if finished:
 		return
 	var ratio := energy_ratio()
-	if generators > 0 or heaters > 0:
-		oxygen = minf(100.0, oxygen + generators * MACHINE_RATE * ratio * delta)
-		temperature = minf(100.0, temperature + heaters * MACHINE_RATE * ratio * delta)
+	if energy_demand() > 0:
+		oxygen = minf(100.0, oxygen + _total("oxygen") * MACHINE_RATE * ratio * delta)
+		temperature = minf(100.0, temperature + _total("temperature") * MACHINE_RATE * ratio * delta)
 		planet_changed.emit()
 		_update_stage()
 
 	player_oxygen -= PLAYER_O2_DRAIN * (1.0 - oxygen / 100.0) * delta
 	if player_oxygen <= 0.0:
-		player_oxygen = PLAYER_O2_MAX
+		player_oxygen = player_o2_max()
 		player_suffocated.emit()
 		message.emit("Te quedaste sin oxígeno. Vuelves a la base.")
 
@@ -95,11 +113,36 @@ func terraform_index() -> float:
 	return (oxygen + temperature) / 2.0
 
 
+func player_o2_max() -> float:
+	return TANK_O2_MAX if has_tank else PLAYER_O2_MAX
+
+
+func energy_supply() -> int:
+	var supply := 0
+	for kind in machine_counts:
+		supply += maxi(0, int(MACHINES[kind]["energy"])) * int(machine_counts[kind])
+	return supply
+
+
+func energy_demand() -> int:
+	var demand := 0
+	for kind in machine_counts:
+		demand += maxi(0, -int(MACHINES[kind]["energy"])) * int(machine_counts[kind])
+	return demand
+
+
 func energy_ratio() -> float:
-	var demand := generators + heaters
+	var demand := energy_demand()
 	if demand == 0:
 		return 0.0
-	return minf(1.0, float(panels) / demand)
+	return minf(1.0, float(energy_supply()) / demand)
+
+
+func _total(metric: String) -> int:
+	var total := 0
+	for kind in machine_counts:
+		total += int(MACHINES[kind][metric]) * int(machine_counts[kind])
+	return total
 
 
 func add_item(id: String, amount: int) -> void:
@@ -114,7 +157,7 @@ func is_unlocked(id: String) -> bool:
 func can_craft(id: String) -> bool:
 	if not is_unlocked(id):
 		return false
-	if id == "taladro" and has_drill:
+	if (id == "taladro" and has_drill) or (id == "tanque" and has_tank):
 		return false
 	var cost: Dictionary = RECIPES[id]["cost"]
 	for res in cost:
@@ -132,8 +175,12 @@ func craft(id: String) -> bool:
 		inventory[res] = int(inventory[res]) - int(cost[res])
 	match String(recipe["kind"]):
 		"tool":
-			has_drill = true
-			message.emit("Taladro mejorado: ahora recoges el doble.")
+			if id == "tanque":
+				has_tank = true
+				message.emit("Tanque de oxígeno: tu reserva sube a %d." % int(TANK_O2_MAX))
+			else:
+				has_drill = true
+				message.emit("Taladro mejorado: ahora recoges el doble.")
 		"consumable":
 			inventory[id] = int(inventory.get(id, 0)) + 1
 		"building":
@@ -147,7 +194,7 @@ func use_bottle() -> void:
 		message.emit("No tienes botellas de oxígeno.")
 		return
 	inventory["botella"] = int(inventory["botella"]) - 1
-	player_oxygen = minf(PLAYER_O2_MAX, player_oxygen + BOTTLE_REFILL)
+	player_oxygen = minf(player_o2_max(), player_oxygen + BOTTLE_REFILL)
 	inventory_changed.emit()
 
 
@@ -157,13 +204,7 @@ func register_machine(kind: String, pos: Vector3, rot: float) -> void:
 
 
 func _count_machine(kind: String) -> void:
-	match kind:
-		"panel":
-			panels += 1
-		"generador":
-			generators += 1
-		"calentador":
-			heaters += 1
+	machine_counts[kind] = int(machine_counts.get(kind, 0)) + 1
 	planet_changed.emit()
 
 
@@ -201,6 +242,7 @@ func save_game() -> void:
 		"version": 1,
 		"inventory": inventory,
 		"has_drill": has_drill,
+		"has_tank": has_tank,
 		"oxygen": oxygen,
 		"temperature": temperature,
 		"player_oxygen": player_oxygen,
@@ -238,13 +280,14 @@ func load_game() -> bool:
 	for id in inventory:
 		inventory[id] = int(saved_inventory.get(id, 0))
 	has_drill = bool(data.get("has_drill", false))
+	has_tank = bool(data.get("has_tank", false))
 	oxygen = float(data.get("oxygen", 0.0))
 	temperature = float(data.get("temperature", 0.0))
 	player_oxygen = float(data.get("player_oxygen", PLAYER_O2_MAX))
 	stage = int(data.get("stage", 0))
 	finished = bool(data.get("finished", false))
 	for m in data.get("machines", []):
-		if typeof(m) == TYPE_DICTIONARY and RECIPES.has(m.get("kind", "")):
+		if typeof(m) == TYPE_DICTIONARY and MACHINES.has(m.get("kind", "")):
 			machines.append(m)
 			_count_machine(String(m["kind"]))
 	var p = data.get("player")
@@ -267,9 +310,8 @@ func _reset_state() -> void:
 	for id in inventory:
 		inventory[id] = 0
 	has_drill = false
-	panels = 0
-	generators = 0
-	heaters = 0
+	has_tank = false
+	machine_counts = {}
 	oxygen = 0.0
 	temperature = 0.0
 	player_oxygen = PLAYER_O2_MAX

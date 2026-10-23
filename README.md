@@ -28,10 +28,12 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 
 ## Cómo se juega
 
-- Recoge **hierro** (rocas marrones), **silicio** (cristales azules) y **hielo** (placas blancas).
+- Recoge **hierro** (rocas marrones), **silicio** (cristales azules), **hielo** (placas blancas) y **cobre** (rocas verdes).
 - Craftea **paneles solares** para tener energía y **generadores de oxígeno** para subir el oxígeno del planeta.
   Cada máquina necesita un panel para funcionar al 100 %.
 - Al llegar al 25 % del índice se desbloquea el **calentador**, que sube la temperatura.
+- Al llegar al 60 % (Deshielo) se desbloquean recetas con **cobre** (rocas verdes): turbina eólica (3 de energía),
+  generador y calentador avanzados (triple de efecto, gastan 2 de energía) y el tanque de oxígeno (reserva de 200).
 - Tu oxígeno baja con el tiempo; las **botellas** lo recargan. Si llega a cero vuelves al punto de inicio.
 - Etapas: Roca muerta (0 %) → Primera neblina (25 %) → Deshielo (60 %, aparece agua) → Habitable (100 %, aparecen plantas).
 
