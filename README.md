@@ -35,7 +35,7 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 - Tu oxígeno baja con el tiempo; las **botellas** lo recargan. Si llega a cero vuelves al punto de inicio.
 - Etapas: Roca muerta (0 %) → Primera neblina (25 %) → Deshielo (60 %, aparece agua) → Habitable (100 %, aparecen plantas).
 
-La partida se guarda sola cada 30 segundos, al cambiar de etapa y al cerrar la ventana, y se carga al arrancar.
+La partida se guarda sola cada 15 segundos, al cambiar de etapa, al cerrar la ventana, al perder el foco y, en el navegador, al ocultar la pestaña. Se carga al arrancar.
 Se guarda en `user://partida.json` (en el escritorio, la carpeta de datos de usuario de Godot; en el navegador, el almacenamiento del navegador).
 
 Todas las cantidades son provisionales y están en `scripts/game_state.gd`.

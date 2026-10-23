@@ -38,7 +38,7 @@ const PLAYER_O2_MAX := 100.0
 const PLAYER_O2_DRAIN := 0.5 # por segundo, con el planeta sin oxígeno
 const BOTTLE_REFILL := 50.0
 const SAVE_PATH := "user://partida.json"
-const AUTOSAVE_TIME := 30.0
+const AUTOSAVE_TIME := 15.0
 
 var inventory := {"hierro": 0, "silicio": 0, "hielo": 0, "botella": 0}
 var has_drill := false
@@ -58,10 +58,16 @@ var machines: Array = []
 var player_position = null
 var _autosave_timer := 0.0
 var _skip_next_load := false
+# En el navegador el cierre de la pestaña no avisa al juego; se guarda al ocultarla.
+var _js_visibility_callback
 
 
 func _ready() -> void:
 	_setup_input()
+	if OS.has_feature("web"):
+		_js_visibility_callback = JavaScriptBridge.create_callback(_on_web_visibility_change)
+		var document = JavaScriptBridge.get_interface("document")
+		document.addEventListener("visibilitychange", _js_visibility_callback)
 
 
 func _process(delta: float) -> void:
@@ -180,7 +186,13 @@ func _update_stage() -> void:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		save_game()
+
+
+func _on_web_visibility_change(_args: Array) -> void:
+	var document = JavaScriptBridge.get_interface("document")
+	if document.hidden:
 		save_game()
 
 
