@@ -34,6 +34,8 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 - Al llegar al 25 % del índice se desbloquea el **calentador**, que sube la temperatura.
 - Al llegar al 60 % (Deshielo) se desbloquean recetas con **cobre** (rocas verdes): turbina eólica (3 de energía),
   generador y calentador avanzados (triple de efecto, gastan 2 de energía) y el tanque de oxígeno (reserva de 200).
+- **Día y noche:** un día dura 4 minutos. De noche tu **calor** baja (menos cuanto más caliente está el planeta)
+  salvo si estás a menos de 8 m de un calentador; de día se recupera. Si el calor llega a 0, gastas oxígeno el triple de rápido.
 - Tu oxígeno baja con el tiempo; las **botellas** lo recargan. Si llega a cero vuelves al punto de inicio.
 - Etapas: Roca muerta (0 %) → Primera neblina (25 %) → Deshielo (60 %, aparece agua) → Habitable (100 %, aparecen plantas).
 

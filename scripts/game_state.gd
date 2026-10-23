@@ -55,6 +55,14 @@ const PLAYER_O2_MAX := 100.0
 const TANK_O2_MAX := 200.0
 const PLAYER_O2_DRAIN := 0.5 # por segundo, con el planeta sin oxígeno
 const BOTTLE_REFILL := 50.0
+# Día y noche
+const DAY_LENGTH := 240.0 # segundos por día completo
+const START_TIME := 0.3 # 0 = medianoche, 0.5 = mediodía
+const WARMTH_MAX := 100.0
+const WARMTH_DRAIN := 2.0 # por segundo de noche, con el planeta a 0 % de temperatura
+const WARMTH_REGEN := 5.0 # por segundo de día o junto a un calentador
+const HEATER_RANGE := 8.0 # metros
+const COLD_O2_FACTOR := 3.0 # multiplica el gasto de oxígeno cuando el calor llega a 0
 const SAVE_PATH := "user://partida.json"
 const AUTOSAVE_TIME := 15.0
 
@@ -68,6 +76,11 @@ var temperature := 0.0
 var player_oxygen := PLAYER_O2_MAX
 var stage := 0
 var finished := false
+var time_of_day := START_TIME
+var day := 1
+var warmth := WARMTH_MAX
+var _was_night := false
+var _was_frozen := false
 var ui_open := false
 var hint := ""
 # Construcciones colocadas: [{"kind", "x", "y", "z", "rot"}], para el guardado.
@@ -102,11 +115,69 @@ func _process(delta: float) -> void:
 		planet_changed.emit()
 		_update_stage()
 
-	player_oxygen -= PLAYER_O2_DRAIN * (1.0 - oxygen / 100.0) * delta
+	_update_day_and_cold(delta)
+	var drain := PLAYER_O2_DRAIN * (1.0 - oxygen / 100.0)
+	if warmth <= 0.0:
+		drain *= COLD_O2_FACTOR
+	player_oxygen -= drain * delta
 	if player_oxygen <= 0.0:
 		player_oxygen = player_o2_max()
 		player_suffocated.emit()
 		message.emit("Te quedaste sin oxígeno. Vuelves a la base.")
+
+
+## 1 a mediodía, -1 a medianoche.
+func sun_height() -> float:
+	return sin((time_of_day - 0.25) * TAU)
+
+
+func is_night() -> bool:
+	return sun_height() < 0.0
+
+
+func clock_text() -> String:
+	var minutes := int(time_of_day * 24.0 * 60.0)
+	return "Día %d · %02d:%02d" % [day, minutes / 60, minutes % 60]
+
+
+func _update_day_and_cold(delta: float) -> void:
+	time_of_day += delta / DAY_LENGTH
+	if time_of_day >= 1.0:
+		time_of_day -= 1.0
+		day += 1
+
+	var night := is_night()
+	if night and not _was_night:
+		message.emit("Cae la noche: hace frío, quédate cerca de un calentador.")
+	elif not night and _was_night:
+		message.emit("Amanece.")
+	_was_night = night
+
+	if night and not _near_heater():
+		# Cuanto más caliente está el planeta, menos frío hace de noche.
+		warmth -= WARMTH_DRAIN * (1.0 - temperature / 100.0) * delta
+	else:
+		warmth += WARMTH_REGEN * delta
+	warmth = clampf(warmth, 0.0, WARMTH_MAX)
+
+	var frozen := warmth <= 0.0
+	if frozen and not _was_frozen:
+		message.emit("Estás helado: gastas oxígeno el triple de rápido.")
+	_was_frozen = frozen
+
+
+func _near_heater() -> bool:
+	var player := get_tree().get_first_node_in_group("player") as Node3D
+	if player == null:
+		return false
+	for m in machines:
+		var kind := String(m["kind"])
+		if int(MACHINES[kind]["temperature"]) <= 0:
+			continue
+		var pos := Vector3(float(m["x"]), float(m["y"]), float(m["z"]))
+		if pos.distance_to(player.global_position) <= HEATER_RANGE:
+			return true
+	return false
 
 
 func terraform_index() -> float:
@@ -247,6 +318,9 @@ func save_game() -> void:
 		"temperature": temperature,
 		"player_oxygen": player_oxygen,
 		"stage": stage,
+		"time_of_day": time_of_day,
+		"day": day,
+		"warmth": warmth,
 		"finished": finished,
 		"machines": machines,
 	}
@@ -285,6 +359,10 @@ func load_game() -> bool:
 	temperature = float(data.get("temperature", 0.0))
 	player_oxygen = float(data.get("player_oxygen", PLAYER_O2_MAX))
 	stage = int(data.get("stage", 0))
+	time_of_day = float(data.get("time_of_day", START_TIME))
+	day = int(data.get("day", 1))
+	warmth = float(data.get("warmth", WARMTH_MAX))
+	_was_night = is_night()
 	finished = bool(data.get("finished", false))
 	for m in data.get("machines", []):
 		if typeof(m) == TYPE_DICTIONARY and MACHINES.has(m.get("kind", "")):
@@ -317,6 +395,11 @@ func _reset_state() -> void:
 	player_oxygen = PLAYER_O2_MAX
 	stage = 0
 	finished = false
+	time_of_day = START_TIME
+	day = 1
+	warmth = WARMTH_MAX
+	_was_night = false
+	_was_frozen = false
 	ui_open = false
 	machines = []
 	player_position = null

@@ -6,6 +6,7 @@ const MESSAGE_TIME := 4.0
 var inventory_label: Label
 var planet_label: Label
 var oxygen_bar: ProgressBar
+var warmth_bar: ProgressBar
 var hint_label: Label
 var message_label: Label
 var craft_panel: PanelContainer
@@ -36,7 +37,7 @@ func _ready() -> void:
 
 	var oxygen_box := VBoxContainer.new()
 	oxygen_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	oxygen_box.position += Vector2(-150, -72)
+	oxygen_box.position += Vector2(-150, -120)
 	oxygen_box.custom_minimum_size = Vector2(300, 0)
 	oxygen_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var oxygen_title := Label.new()
@@ -46,6 +47,14 @@ func _ready() -> void:
 	oxygen_bar.custom_minimum_size = Vector2(300, 20)
 	oxygen_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	oxygen_box.add_child(oxygen_bar)
+	var warmth_title := Label.new()
+	warmth_title.text = "Tu calor"
+	oxygen_box.add_child(warmth_title)
+	warmth_bar = ProgressBar.new()
+	warmth_bar.max_value = Game.WARMTH_MAX
+	warmth_bar.custom_minimum_size = Vector2(300, 20)
+	warmth_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	oxygen_box.add_child(warmth_bar)
 	add_child(oxygen_box)
 
 	_build_craft_panel()
@@ -66,8 +75,9 @@ func _input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	oxygen_bar.max_value = Game.player_o2_max()
 	oxygen_bar.value = Game.player_oxygen
+	warmth_bar.value = Game.warmth
 	hint_label.text = Game.hint
-	planet_label.text = "Etapa: %s\nOxígeno: %.1f %%\nTemperatura: %.1f %%\nÍndice: %.1f %%\nEnergía: %d producida / %d necesaria" % [
+	planet_label.text = Game.clock_text() + ("  (noche)" if Game.is_night() else "") + "\nEtapa: %s\nOxígeno: %.1f %%\nTemperatura: %.1f %%\nÍndice: %.1f %%\nEnergía: %d producida / %d necesaria" % [
 		Game.STAGES[Game.stage]["name"], Game.oxygen, Game.temperature,
 		Game.terraform_index(), Game.energy_supply(), Game.energy_demand()]
 	if message_timer > 0.0:
