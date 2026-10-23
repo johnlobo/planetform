@@ -32,7 +32,7 @@ func _ready() -> void:
 	message_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 	var help := _label(Control.PRESET_BOTTOM_LEFT, Vector2(16, -40))
-	help.text = "WASD mover · Espacio saltar · Clic recoger · Tab craftear · Q usar botella · Esc soltar ratón"
+	help.text = "WASD mover · Espacio saltar · Clic recoger · Tab craftear · Q usar botella · F9 nueva partida · Esc soltar ratón"
 
 	var oxygen_box := VBoxContainer.new()
 	oxygen_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
