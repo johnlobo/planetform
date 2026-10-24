@@ -44,6 +44,8 @@ La partida se guarda sola cada 15 segundos, al cambiar de etapa, al cerrar la ve
 Al arrancar sale el menú principal: **Continuar partida** carga lo guardado y **Nueva partida** (pide confirmación) la borra y empieza de cero. Con **H** se abre el mismo menú como pausa.
 Se guarda en `user://partida.json` (en el escritorio, la carpeta de datos de usuario de Godot; en el navegador, el almacenamiento del navegador).
 
+Todos los sonidos (pasos, recoger, craftear, colocar, avisos, viento) se generan por código al arrancar en `scripts/sound.gd`, sin archivos de audio ni licencias. El viento sopla más fuerte de noche.
+
 Todas las cantidades son provisionales y están en `scripts/game_state.gd`.
 
 ## Exportar al navegador

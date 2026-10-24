@@ -5,11 +5,13 @@ const SPEED := 6.0
 const JUMP_VELOCITY := 4.5
 const MOUSE_SENSITIVITY := 0.0025
 const REACH := 4.0
+const STEP_DISTANCE := 2.2 # metros entre pisadas
 
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var camera: Camera3D
 var ray: RayCast3D
 var spawn_point := Vector3.ZERO
+var _step_travel := 0.0
 
 
 func _ready() -> void:
@@ -74,13 +76,28 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity.x = move_toward(velocity.x, 0, SPEED)
 		velocity.z = move_toward(velocity.z, 0, SPEED)
+	var was_on_floor := is_on_floor()
 	move_and_slide()
+	_update_steps(delta, was_on_floor)
 
 	# Red de seguridad por si el jugador atraviesa el terreno.
 	if global_position.y < -50.0:
 		global_position = spawn_point
 
 	_update_hint()
+
+
+func _update_steps(delta: float, was_on_floor: bool) -> void:
+	if not is_on_floor():
+		return
+	if not was_on_floor:
+		Sfx.play("paso", 0.1, 3.0) # aterrizaje
+		_step_travel = 0.0
+		return
+	_step_travel += Vector2(velocity.x, velocity.z).length() * delta
+	if _step_travel >= STEP_DISTANCE:
+		_step_travel = 0.0
+		Sfx.play("paso", 0.15)
 
 
 func _update_hint() -> void:
@@ -98,6 +115,7 @@ func _interact() -> void:
 	if target and target.has_method("harvest"):
 		var amount: int = target.harvest(2 if Game.has_drill else 1)
 		if amount > 0:
+			Sfx.play("recoger", 0.05)
 			Game.add_item(target.resource_type, amount)
 			Game.message.emit("+%d %s" % [amount, Game.RESOURCE_NAMES[target.resource_type]])
 
