@@ -6,12 +6,14 @@ const JUMP_VELOCITY := 4.5
 const MOUSE_SENSITIVITY := 0.0025
 const REACH := 4.0
 const STEP_DISTANCE := 2.2 # metros entre pisadas
+const LANDING_MIN_AIR_TIME := 0.25 # segundos en el aire para que suene el aterrizaje
 
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var camera: Camera3D
 var ray: RayCast3D
 var spawn_point := Vector3.ZERO
 var _step_travel := 0.0
+var _air_time := 0.0
 
 
 func _ready() -> void:
@@ -89,9 +91,14 @@ func _physics_process(delta: float) -> void:
 
 func _update_steps(delta: float, was_on_floor: bool) -> void:
 	if not is_on_floor():
+		_air_time += delta
 		return
 	if not was_on_floor:
-		Sfx.play("paso", 0.1, 3.0) # aterrizaje
+		# Al aparecer o reaparecer el jugador toca el suelo enseguida: eso no
+		# es un aterrizaje y no debe sonar.
+		if _air_time >= LANDING_MIN_AIR_TIME:
+			Sfx.play("paso", 0.1, 3.0) # aterrizaje
+		_air_time = 0.0
 		_step_travel = 0.0
 		return
 	_step_travel += Vector2(velocity.x, velocity.z).length() * delta

@@ -48,6 +48,11 @@ func _process(delta: float) -> void:
 	_wind.volume_db = move_toward(_wind.volume_db, target, 10.0 * delta)
 
 
+func _exit_tree() -> void:
+	# Si el viento sigue sonando al cerrar, Godot avisa de recursos sin liberar.
+	_wind.stop()
+
+
 ## Reproduce un efecto por nombre; pitch_jitter varía el tono para que no canse.
 func play(sound_name: String, pitch_jitter := 0.0, volume_db := 0.0) -> void:
 	if not _sounds.has(sound_name):
@@ -81,6 +86,11 @@ func _tones(freqs: Array, note_length: float, volume: float) -> AudioStreamWAV:
 	var samples := PackedFloat32Array()
 	var n := int(note_length * MIX_RATE)
 	for freq in freqs:
+		if float(freq) == 0.0:
+			# La onda triangular con frecuencia 0 vale 1 fijo: daría un golpe, no silencio.
+			for i in n:
+				samples.append(0.0)
+			continue
 		for i in n:
 			var t := float(i) / MIX_RATE
 			# Ataque corto y caída lineal para que no haga clic.
@@ -99,7 +109,7 @@ func _step() -> AudioStreamWAV:
 	for i in n:
 		low = lerpf(low, _rng.randf_range(-1.0, 1.0), 0.25)
 		var env := pow(1.0 - float(i) / n, 3.0)
-		samples.append(low * env * 0.8)
+		samples.append(low * env * 0.4)
 	return _make_stream(samples)
 
 
