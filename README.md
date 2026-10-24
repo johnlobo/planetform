@@ -64,9 +64,11 @@ GitHub Actions (`.github/workflows/compilar.yml`) exporta el juego para navegado
 - Al subir una etiqueta que empiece por `v` se publican en una Release de GitHub:
 
   ```
-  git tag v0.1
-  git push origin v0.1
+  git tag v0.3
+  git push origin v0.3
   ```
+
+  La versión de la app de macOS se toma de la etiqueta (`v0.3` → `0.3`).
 
 La versión de macOS no está firmada con una cuenta de desarrollador de Apple, así que macOS la bloquea la primera vez.
 Para abrirla: intenta abrirla una vez, ve a **Ajustes del Sistema → Privacidad y seguridad** y pulsa **Abrir igualmente**.

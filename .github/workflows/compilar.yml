@@ -35,6 +35,15 @@ jobs:
           mv templates/* "$templates/"
           echo "GODOT=$RUNNER_TEMP/godot" >> "$GITHUB_ENV"
 
+      # Con una etiqueta v* la versión de la app de macOS sale de la etiqueta
+      # (v0.2 -> 0.2); en los PR se queda la de export_presets.cfg.
+      - name: Poner la versión de la etiqueta
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          sed -i -E "s/^application\/(short_version|version)=\".*\"/application\/\1=\"$version\"/" export_presets.cfg
+          grep -E '^application/(short_version|version)=' export_presets.cfg
+
       - name: Importar el proyecto
         run: $GODOT --headless --import
 
