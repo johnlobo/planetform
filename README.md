@@ -46,6 +46,8 @@ Se guarda en `user://partida.json` (en el escritorio, la carpeta de datos de usu
 
 Todos los sonidos (pasos, recoger, craftear, colocar, avisos, viento) se generan por código al arrancar en `scripts/sound.gd`, sin archivos de audio ni licencias. El viento sopla más fuerte de noche.
 
+El aspecto low poly también se genera por código en `scripts/main.gd`: cielo con degradado y atardeceres, niebla que aumenta con la atmósfera, estrellas y luz de luna de noche, rocas y cristales con varias formas, y árboles y arbustos variados al llegar a Habitable.
+
 Todas las cantidades son provisionales y están en `scripts/game_state.gd`.
 
 ## Exportar al navegador
