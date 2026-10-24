@@ -95,6 +95,8 @@ var machines: Array = []
 var player_position = null
 var _autosave_timer := 0.0
 var _skip_next_load := false
+# true tras empezar una nueva partida, para no volver a la pantalla de título.
+var skip_title := false
 # En el navegador el cierre de la pestaña no avisa al juego; se guarda al ocultarla.
 var _js_visibility_callback
 
@@ -416,6 +418,8 @@ func new_game() -> void:
 	_reset_state()
 	# Por si el archivo no se pudo borrar, la escena nueva no debe cargarlo.
 	_skip_next_load = true
+	skip_title = true
+	get_tree().paused = false
 	get_tree().reload_current_scene()
 
 
@@ -452,7 +456,6 @@ func _setup_input() -> void:
 	_add_key("craft", [KEY_TAB, KEY_C])
 	_add_key("use_bottle", [KEY_Q])
 	_add_key("release_mouse", [KEY_ESCAPE])
-	_add_key("new_game", [KEY_F9])
 	_add_key("pause", [KEY_H])
 
 

@@ -53,8 +53,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	elif event.is_action_pressed("use_bottle"):
 		Game.use_bottle()
-	elif event.is_action_pressed("new_game"):
-		Game.new_game()
 	elif event.is_action_pressed("release_mouse"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 

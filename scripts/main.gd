@@ -6,6 +6,7 @@ const ResourceNode := preload("res://scripts/resource_node.gd")
 const Machine := preload("res://scripts/machine.gd")
 const Player := preload("res://scripts/player.gd")
 const Hud := preload("res://scripts/hud.gd")
+const Menu := preload("res://scripts/menu.gd")
 
 const WORLD_SIZE := 160.0
 const GRID := 64 # cuadros por lado del terreno
@@ -39,12 +40,21 @@ func _ready() -> void:
 	for m in Game.machines:
 		_spawn_machine(String(m["kind"]), Vector3(float(m["x"]), float(m["y"]), float(m["z"])), float(m["rot"]))
 	_spawn_player()
-	add_child(Hud.new())
+	var hud := Hud.new()
+	add_child(hud)
+	var menu := Menu.new()
+	add_child(menu)
+	menu.opened.connect(hud.on_menu_opened)
+	menu.closed.connect(hud.on_menu_closed)
 	Game.place_requested.connect(_on_place_requested)
 	Game.stage_changed.connect(_on_stage_changed)
 	if loaded:
 		_on_stage_changed(Game.stage)
-		Game.message.emit("Partida cargada. F9 para empezar una nueva.")
+	# Tras pulsar "Nueva partida" se entra directamente a jugar.
+	if Game.skip_title:
+		Game.skip_title = false
+	else:
+		menu.open_title(loaded)
 
 
 func _process(_delta: float) -> void:
