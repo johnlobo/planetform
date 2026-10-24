@@ -7,6 +7,7 @@ const Machine := preload("res://scripts/machine.gd")
 const Player := preload("res://scripts/player.gd")
 const Hud := preload("res://scripts/hud.gd")
 const Menu := preload("res://scripts/menu.gd")
+const Placer := preload("res://scripts/placer.gd")
 
 const WORLD_SIZE := 160.0
 const GRID := 64 # cuadros por lado del terreno
@@ -31,6 +32,8 @@ var ground_material: StandardMaterial3D
 var water: MeshInstance3D
 var plants: Node3D
 var player: CharacterBody3D
+var terrain: StaticBody3D
+var placer: Node3D
 
 var sky_colors := Gradient.new()
 var ground_colors := Gradient.new()
@@ -48,8 +51,13 @@ func _ready() -> void:
 	_build_water()
 	_spawn_resources()
 	for m in Game.machines:
-		_spawn_machine(String(m["kind"]), Vector3(float(m["x"]), float(m["y"]), float(m["z"])), float(m["rot"]))
+		spawn_machine(String(m["kind"]), Vector3(float(m["x"]), float(m["y"]), float(m["z"])), float(m["rot"]))
 	_spawn_player()
+	placer = Placer.new()
+	placer.world = self
+	placer.terrain = terrain
+	placer.player = player
+	add_child(placer)
 	var hud := Hud.new()
 	add_child(hud)
 	var menu := Menu.new()
@@ -233,6 +241,7 @@ func _build_terrain() -> void:
 	collision.shape = shape
 	body.add_child(collision)
 	add_child(body)
+	terrain = body
 
 
 ## Tono de gris de un triángulo: más oscuro en pendiente y en los valles,
@@ -302,16 +311,10 @@ func _spawn_player() -> void:
 
 
 func _on_place_requested(kind: String) -> void:
-	var forward := -player.global_transform.basis.z
-	forward.y = 0.0
-	var pos := player.global_position + forward.normalized() * 4.0
-	pos.y = surface_height(pos.x, pos.z)
-	_spawn_machine(kind, pos, player.rotation.y)
-	Sfx.play("colocar")
-	Game.register_machine(kind, pos, player.rotation.y)
+	placer.start(kind)
 
 
-func _spawn_machine(kind: String, pos: Vector3, rot: float) -> void:
+func spawn_machine(kind: String, pos: Vector3, rot: float) -> void:
 	var machine := Machine.new()
 	machine.setup(kind)
 	machine.position = pos

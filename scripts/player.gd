@@ -108,6 +108,8 @@ func _update_steps(delta: float, was_on_floor: bool) -> void:
 
 
 func _update_hint() -> void:
+	if Game.placing:
+		return # el modo de colocación escribe su propia ayuda
 	Game.hint = ""
 	if ray.is_colliding():
 		var target = ray.get_collider()

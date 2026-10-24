@@ -92,6 +92,8 @@ var dead := false
 # true mientras se muestra la pantalla de título: aún no se ha empezado a jugar.
 var in_title := false
 var ui_open := false
+# true mientras el jugador elige dónde colocar una construcción.
+var placing := false
 var hint := ""
 # Construcciones colocadas: [{"kind", "x", "y", "z", "rot"}], para el guardado.
 var machines: Array = []
@@ -286,11 +288,14 @@ func craft(id: String) -> bool:
 	if not can_craft(id):
 		return false
 	var recipe: Dictionary = RECIPES[id]
+	# Las construcciones se pagan al colocarlas, así cancelar no cuesta nada.
+	if String(recipe["kind"]) == "building":
+		place_requested.emit(id)
+		return true
 	var cost: Dictionary = recipe["cost"]
 	for res in cost:
 		inventory[res] = int(inventory[res]) - int(cost[res])
-	if String(recipe["kind"]) != "building":
-		Sfx.play("craftear")
+	Sfx.play("craftear")
 	match String(recipe["kind"]):
 		"tool":
 			if id == "tanque":
@@ -301,8 +306,19 @@ func craft(id: String) -> bool:
 				message.emit("Taladro mejorado: ahora recoges el doble.")
 		"consumable":
 			inventory[id] = int(inventory.get(id, 0)) + 1
-		"building":
-			place_requested.emit(id)
+	inventory_changed.emit()
+	return true
+
+
+## Descuenta el coste de una construcción al colocarla y la apunta en la
+## partida. Devuelve false si ya no hay materiales.
+func build(kind: String, pos: Vector3, rot: float) -> bool:
+	if not can_craft(kind):
+		return false
+	var cost: Dictionary = RECIPES[kind]["cost"]
+	for res in cost:
+		inventory[res] = int(inventory[res]) - int(cost[res])
+	register_machine(kind, pos, rot)
 	inventory_changed.emit()
 	return true
 
@@ -460,6 +476,7 @@ func _reset_state() -> void:
 	dead = false
 	in_title = false
 	ui_open = false
+	placing = false
 	machines = []
 	player_position = null
 	_autosave_timer = 0.0
@@ -475,6 +492,7 @@ func _setup_input() -> void:
 	_add_key("use_bottle", [KEY_Q])
 	_add_key("release_mouse", [KEY_ESCAPE])
 	_add_key("pause", [KEY_H])
+	_add_key("rotate_building", [KEY_R])
 
 
 func _add_key(action: String, keys: Array) -> void:
