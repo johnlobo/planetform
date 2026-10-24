@@ -22,6 +22,9 @@ const RESOURCE_NAMES := {
 	"agua": "Agua",
 	"semillas": "Semillas de musgo",
 	"botella": "Botella de oxígeno",
+	"racion": "Ración de emergencia",
+	"verdura": "Verduras",
+	"guiso": "Guiso",
 }
 
 # "stage" es la etapa mínima de terraformación que desbloquea la receta.
@@ -37,6 +40,7 @@ const RECIPES := {
 	"generador_avanzado": {"name": "Generador avanzado", "cost": {"hierro": 4, "cobre": 3, "hielo": 3}, "kind": "building", "stage": 2},
 	"calentador_avanzado": {"name": "Calentador avanzado", "cost": {"hierro": 4, "cobre": 3, "silicio": 2}, "kind": "building", "stage": 2},
 	"semillas": {"name": "Semillas de musgo", "cost": {"agua": 1, "silicio": 1}, "kind": "consumable", "stage": 2},
+	"guiso": {"name": "Guiso", "cost": {"verdura": 3, "agua": 1}, "kind": "consumable", "stage": 2},
 	"musgo": {"name": "Musgo", "cost": {"semillas": 1}, "kind": "building", "stage": 2},
 	"bomba": {"name": "Bomba de agua", "cost": {"hierro": 3, "cobre": 2}, "kind": "building", "stage": 2},
 	"cultivo": {"name": "Bancal de cultivo", "cost": {"hierro": 2, "agua": 3, "semillas": 2}, "kind": "building", "stage": 2},
@@ -64,10 +68,16 @@ const MACHINES := {
 	"taquilla": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "storage": 50},
 	# Deshielo: el musgo crece solo; el bancal, más rápido pero con energía.
 	"musgo": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 1},
-	"cultivo": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 3},
-	# Saca agua del subsuelo y la guarda: "produces" cada PUMP_TIME segundos.
-	"bomba": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 0, "storage": 20, "produces": "agua"},
+	# Saca agua del subsuelo y la guarda: una unidad de "produces" cada
+	# "produce_time" segundos con toda la energía, hasta llenar "storage".
+	"bomba": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 0, "storage": 20, "produces": "agua", "produce_time": 6.0},
+	# El bancal, además de subir la biomasa, da verduras para comer.
+	"cultivo": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 3, "storage": 12, "produces": "verdura", "produce_time": 20.0},
 }
+
+# Comida: cuánto quita el hambre cada cosa. Al comer (F) se toma la primera
+# de esta lista que haya en la mochila.
+const FOODS := {"verdura": 20.0, "racion": 40.0, "guiso": 100.0}
 
 # Modos de la herramienta de mano, en el orden de las teclas 1, 2 y 3.
 const TOOL_MODES := ["recoger", "construir", "desmontar"]
@@ -86,7 +96,14 @@ const PLAYER_O2_MAX := 100.0
 const TANK_O2_MAX := 200.0
 const PLAYER_O2_DRAIN := 0.5 # por segundo, con el planeta sin oxígeno
 const BOTTLE_REFILL := 50.0
-const PUMP_TIME := 6.0 # segundos por unidad de agua de la bomba con toda la energía
+# Hambre: la barra de comida se vacía en HUNGER_MAX / HUNGER_DRAIN segundos
+# (12 minutos, tres días). Vacía, hay STARVE_TIME segundos para comer algo.
+const HUNGER_MAX := 100.0
+const HUNGER_DRAIN := 100.0 / 720.0
+const HUNGER_WARNING := 25.0
+const STARVE_TIME := 60.0
+# Raciones con las que se empieza, para aguantar hasta tener bancales.
+const START_RATIONS := 5
 # Peso de cada métrica en el índice de terraformación. Sin biomasa se llega
 # como mucho al 80 %: para que el planeta sea habitable hacen falta plantas.
 const INDEX_WEIGHTS := {"oxygen": 0.4, "temperature": 0.4, "biomass": 0.2}
@@ -104,7 +121,8 @@ const COLD_O2_FACTOR := 3.0 # multiplica el gasto de oxígeno cuando el calor ll
 const SAVE_PATH := "user://partida.json"
 const AUTOSAVE_TIME := 15.0
 
-var inventory := {"hierro": 0, "silicio": 0, "hielo": 0, "cobre": 0, "agua": 0, "semillas": 0, "botella": 0}
+var inventory := {"hierro": 0, "silicio": 0, "hielo": 0, "cobre": 0, "agua": 0, "semillas": 0, "botella": 0,
+		"racion": START_RATIONS, "verdura": 0, "guiso": 0}
 var has_drill := false
 var has_tank := false
 # Número de construcciones colocadas de cada tipo.
@@ -118,6 +136,10 @@ var finished := false
 var time_of_day := START_TIME
 var day := 1
 var warmth := WARMTH_MAX
+var hunger := HUNGER_MAX
+# Segundos que lleva el jugador con la barra de comida vacía.
+var _starve_time := 0.0
+var _was_hungry := false
 var _was_night := false
 var _was_cold := false
 var _was_frozen := false
@@ -170,6 +192,9 @@ func _process(delta: float) -> void:
 		_update_stage()
 
 	_update_day_and_cold(delta)
+	_update_hunger(delta)
+	if dead:
+		return
 	if sheltered:
 		# Dentro de la base hay aire: la reserva se rellena.
 		player_oxygen = minf(player_o2_max(), player_oxygen + SHELTER_O2_REFILL * delta)
@@ -198,6 +223,9 @@ func respawn() -> void:
 	dead = false
 	player_oxygen = player_o2_max()
 	warmth = WARMTH_MAX
+	hunger = HUNGER_MAX
+	_starve_time = 0.0
+	_was_hungry = false
 	_was_cold = false
 	_was_frozen = false
 	_was_low_oxygen = false
@@ -249,6 +277,40 @@ func _update_day_and_cold(delta: float) -> void:
 	if frozen and not _was_frozen:
 		message.emit("Estás helado: gastas oxígeno el triple de rápido.")
 	_was_frozen = frozen
+
+
+func _update_hunger(delta: float) -> void:
+	hunger = maxf(0.0, hunger - HUNGER_DRAIN * delta)
+	var hungry := hunger <= HUNGER_WARNING
+	if hungry and not _was_hungry:
+		message.emit("Tienes hambre: come algo (F).")
+		Sfx.play("alarma")
+	_was_hungry = hungry
+	if hunger > 0.0:
+		_starve_time = 0.0
+		return
+	if _starve_time == 0.0:
+		message.emit("Te mueres de hambre: come algo antes de %d segundos (F)." % int(STARVE_TIME))
+		Sfx.play("alarma")
+	_starve_time += delta
+	if _starve_time >= STARVE_TIME:
+		_die("Te desmayaste de hambre.")
+
+
+## Come lo primero de FOODS que haya en la mochila.
+func eat() -> void:
+	if hunger >= HUNGER_MAX - 1.0:
+		message.emit("No tienes hambre.")
+		return
+	for id in FOODS:
+		if int(inventory.get(id, 0)) > 0:
+			inventory[id] = int(inventory[id]) - 1
+			hunger = minf(HUNGER_MAX, hunger + float(FOODS[id]))
+			Sfx.play("recoger")
+			message.emit("Comes: %s." % String(RESOURCE_NAMES[id]).to_lower())
+			inventory_changed.emit()
+			return
+	message.emit("No tienes comida: cultívala en un bancal.")
 
 
 func _near_heater() -> bool:
@@ -486,6 +548,7 @@ func save_game() -> void:
 		"time_of_day": time_of_day,
 		"day": day,
 		"warmth": warmth,
+		"hunger": hunger,
 		"finished": finished,
 		"machines": machines,
 		"modules": modules,
@@ -529,6 +592,11 @@ func load_game() -> bool:
 	time_of_day = float(data.get("time_of_day", START_TIME))
 	day = int(data.get("day", 1))
 	warmth = float(data.get("warmth", WARMTH_MAX))
+	hunger = float(data.get("hunger", HUNGER_MAX))
+	_was_hungry = hunger <= HUNGER_WARNING
+	if not data.has("hunger"):
+		# Partida de antes del hambre: se le dan las raciones del principio.
+		inventory["racion"] = START_RATIONS
 	_was_night = is_night()
 	finished = bool(data.get("finished", false))
 	for m in data.get("machines", []):
@@ -559,6 +627,7 @@ func new_game() -> void:
 func _reset_state() -> void:
 	for id in inventory:
 		inventory[id] = 0
+	inventory["racion"] = START_RATIONS
 	has_drill = false
 	has_tank = false
 	machine_counts = {}
@@ -571,6 +640,9 @@ func _reset_state() -> void:
 	time_of_day = START_TIME
 	day = 1
 	warmth = WARMTH_MAX
+	hunger = HUNGER_MAX
+	_starve_time = 0.0
+	_was_hungry = false
 	_was_night = false
 	_was_cold = false
 	_was_frozen = false
@@ -595,6 +667,7 @@ func _setup_input() -> void:
 	_add_key("jump", [KEY_SPACE])
 	_add_key("craft", [KEY_TAB, KEY_C])
 	_add_key("use_bottle", [KEY_Q])
+	_add_key("eat", [KEY_F])
 	_add_key("release_mouse", [KEY_ESCAPE])
 	_add_key("pause", [KEY_H])
 	_add_key("rotate_building", [KEY_R])
