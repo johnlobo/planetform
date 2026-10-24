@@ -54,7 +54,7 @@ func _ready() -> void:
 	_build_water()
 	_spawn_resources()
 	for m in Game.machines:
-		spawn_machine(String(m["kind"]), Vector3(float(m["x"]), float(m["y"]), float(m["z"])), float(m["rot"]))
+		spawn_machine(m)
 	for m in Game.modules:
 		spawn_module(m)
 	_spawn_player()
@@ -70,6 +70,7 @@ func _ready() -> void:
 	menu.opened.connect(hud.on_menu_opened)
 	menu.closed.connect(hud.on_menu_closed)
 	Game.place_requested.connect(_on_place_requested)
+	Game.tool_changed.connect(_on_tool_changed)
 	Game.stage_changed.connect(_on_stage_changed)
 	if loaded:
 		_on_stage_changed(Game.stage)
@@ -308,6 +309,7 @@ func _spawn_resources() -> void:
 func _spawn_player() -> void:
 	var base := Vector3(0.0, surface_height(0.0, 0.0) + 1.0, 0.0)
 	player = Player.new()
+	player.world = self
 	player.position = base
 	if Game.player_position != null:
 		player.position = Game.player_position
@@ -320,12 +322,20 @@ func _on_place_requested(kind: String) -> void:
 	placer.start(kind)
 
 
-func spawn_machine(kind: String, pos: Vector3, rot: float) -> void:
+func _on_tool_changed(mode: String) -> void:
+	if mode != "construir":
+		placer.cancel()
+
+
+## Crea una construcción a partir de su entrada de Game.machines.
+func spawn_machine(data: Dictionary) -> Machine:
 	var machine := Machine.new()
-	machine.setup(kind)
-	machine.position = pos
-	machine.rotation.y = rot
+	machine.data = data
+	machine.setup(String(data["kind"]))
+	machine.position = Vector3(float(data["x"]), float(data["y"]), float(data["z"]))
+	machine.rotation.y = float(data["rot"])
 	add_child(machine)
+	return machine
 
 
 func spawn_module(data: Dictionary) -> void:
@@ -355,6 +365,83 @@ func _adjacent(a: Module, b: Module) -> bool:
 	# Tienen que estar alineados: girados lo mismo o un múltiplo de 90 grados.
 	var turn := fposmod(a.rotation.y - b.rotation.y, PI / 2.0)
 	return minf(turn, PI / 2.0 - turn) < 0.02
+
+
+## Qué pasaría al desmontar lo que se apunta: {"name", "node" (lo que se
+## ilumina), "refund"} o, si no se puede, {"name", "node", "reason"}.
+## Vacío si no es algo construido.
+func dismantle_info(target: Object) -> Dictionary:
+	if target is Machine:
+		var machine := target as Machine
+		return {"name": Game.RECIPES[machine.kind]["name"], "node": machine, "refund": Game.RECIPES[machine.kind]["cost"]}
+	if not (target is Node and target.has_meta("module")):
+		return {}
+	var module: Module = target.get_meta("module")
+	if target.has_meta("side"):
+		var side: int = target.get_meta("side")
+		var fitting := String(module.sides[side])
+		if fitting != "pared" and not module.open[side]:
+			# La pared con la puerta o ventana: se quita solo esa pieza.
+			var wall: Node3D = target
+			while wall.get_parent() != module:
+				wall = wall.get_parent()
+			return {"name": Game.RECIPES[fitting]["name"], "node": wall, "refund": Game.RECIPES[fitting]["cost"]}
+	var info := {"name": Game.RECIPES["modulo"]["name"], "node": module}
+	for child in get_children():
+		if child is Machine and module.contains(child.global_position + Vector3(0, 0.3, 0)):
+			info["reason"] = "saca antes lo que hay dentro"
+			return info
+	# Se devuelven también las puertas y ventanas que tenga.
+	var refund: Dictionary = Game.RECIPES["modulo"]["cost"].duplicate()
+	for fitting in module.sides:
+		if fitting != "pared":
+			var cost: Dictionary = Game.RECIPES[fitting]["cost"]
+			for res in cost:
+				refund[res] = int(refund.get(res, 0)) + int(cost[res])
+	info["refund"] = refund
+	return info
+
+
+## Desmonta lo que se apunta y devuelve sus materiales. Devuelve true si se ha
+## desmontado algo.
+func dismantle(target: Object) -> bool:
+	var info := dismantle_info(target)
+	if info.is_empty():
+		return false
+	if info.has("reason"):
+		Sfx.play("alarma", 0.0, -12.0)
+		Game.message.emit("No se puede desmontar: %s." % info["reason"])
+		return false
+	var node: Node3D = info["node"]
+	if node is Machine:
+		var machine := node as Machine
+		if machine.is_storage():
+			# Lo guardado en la taquilla vuelve a la mochila.
+			Game.refund(machine.items())
+		Game.unregister_machine(machine.data)
+		machine.queue_free()
+	elif node is Module:
+		_remove_module(node as Module)
+	else:
+		var module: Module = target.get_meta("module")
+		module.set_side(int(target.get_meta("side")), "pared")
+	Game.refund(info["refund"])
+	Sfx.play("desmontar")
+	Game.message.emit("+%s" % Game.cost_text(info["refund"]))
+	return true
+
+
+func _remove_module(module: Module) -> void:
+	modules.erase(module)
+	for i in Game.modules.size():
+		if is_same(Game.modules[i], module.data):
+			Game.modules.remove_at(i)
+			break
+	# Los vecinos vuelven a tener pared en el lado que compartían.
+	for other in modules:
+		if _adjacent(module, other):
+			other.set_open(other.side_towards(module.global_position), false)
+	module.queue_free()
 
 
 func _update_shelter() -> void:

@@ -319,8 +319,7 @@ func _confirm() -> void:
 		"building":
 			var pos := _ghost.global_position
 			var rot := _ghost.rotation.y
-			Game.register_machine(kind, pos, rot)
-			world.spawn_machine(kind, pos, rot)
+			world.spawn_machine(Game.register_machine(kind, pos, rot))
 		"module":
 			var pos := _ghost.global_position
 			var data := {"x": pos.x, "y": pos.y, "z": pos.z, "rot": _ghost.rotation.y, "sides": ["pared", "pared", "pared", "pared"]}

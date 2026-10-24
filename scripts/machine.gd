@@ -1,7 +1,11 @@
 extends StaticBody3D
-## Construcción colocada por el jugador (panel, generador o calentador).
+## Construcción colocada por el jugador (panel, generador, calentador,
+## taquilla...).
 
 var kind := "panel"
+## Entrada de Game.machines que se guarda con la partida. En las taquillas
+## lleva también "items": lo que hay guardado.
+var data := {}
 ## Caja que ocupa en el suelo (ancho, alto, fondo), para comprobar dónde cabe.
 var footprint := Vector3.ONE
 var _spinner: Node3D
@@ -77,6 +81,16 @@ func setup(machine_kind: String) -> void:
 			material.emission_enabled = true
 			material.emission = Color(0.8, 0.25, 0.05)
 			shape.size = Vector3(2.0, 2.4, 2.0)
+		"taquilla":
+			var cabinet := BoxMesh.new()
+			cabinet.size = Vector3(0.8, 1.9, 0.6)
+			mesh_instance.mesh = cabinet
+			mesh_instance.position.y = 0.95
+			material.albedo_color = Color(0.55, 0.6, 0.66)
+			material.metallic = 0.4
+			material.roughness = 0.5
+			shape.size = Vector3(0.8, 1.9, 0.6)
+			_add_locker_details()
 	mesh_instance.material_override = material
 	add_child(mesh_instance)
 	var collision := CollisionShape3D.new()
@@ -84,6 +98,56 @@ func setup(machine_kind: String) -> void:
 	collision.position.y = shape.size.y / 2.0
 	add_child(collision)
 	footprint = shape.size
+
+
+## Puertas, rendijas, tiradores y una franja naranja en el frente (-Z).
+func _add_locker_details() -> void:
+	var dark := StandardMaterial3D.new()
+	dark.albedo_color = Color(0.3, 0.33, 0.37)
+	var accent := StandardMaterial3D.new()
+	accent.albedo_color = Color(0.95, 0.55, 0.15)
+	var front := -0.3
+	# Ranura entre las dos puertas.
+	_detail(Vector3(0.02, 1.8, 0.02), Vector3(0, 0.95, front), dark)
+	for sx in [-1.0, 1.0]:
+		# Tirador junto a la ranura.
+		_detail(Vector3(0.03, 0.22, 0.04), Vector3(sx * 0.06, 1.0, front - 0.01), accent)
+		# Rendijas de ventilación arriba de cada puerta.
+		for k in 3:
+			_detail(Vector3(0.24, 0.025, 0.02), Vector3(sx * 0.2, 1.65 - k * 0.07, front), dark)
+	_detail(Vector3(0.82, 0.08, 0.62), Vector3(0, 0.12, 0), accent)
+
+
+func _detail(size: Vector3, pos: Vector3, material: Material) -> void:
+	var box := BoxMesh.new()
+	box.size = size
+	var part := MeshInstance3D.new()
+	part.mesh = box
+	part.position = pos
+	part.material_override = material
+	add_child(part)
+
+
+func is_storage() -> bool:
+	return Game.MACHINES[kind].has("storage")
+
+
+func capacity() -> int:
+	return int(Game.MACHINES[kind].get("storage", 0))
+
+
+## Lo guardado en la taquilla: {recurso: cantidad}.
+func items() -> Dictionary:
+	if not data.has("items"):
+		data["items"] = {}
+	return data["items"]
+
+
+func stored_total() -> int:
+	var total := 0
+	for id in items():
+		total += int(items()[id])
+	return total
 
 
 ## Convierte la construcción en una silueta sin colisión que se dibuja con
@@ -105,6 +169,8 @@ func _process(delta: float) -> void:
 
 func get_hint() -> String:
 	var recipe_name: String = Game.RECIPES[kind]["name"]
+	if is_storage():
+		return "%s · %d / %d · E o clic para abrir" % [recipe_name, stored_total(), capacity()]
 	var energy := int(Game.MACHINES[kind]["energy"])
 	if energy > 0:
 		if Game.MACHINES[kind].get("solar", false) and Game.is_night():
