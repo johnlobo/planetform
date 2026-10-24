@@ -13,6 +13,7 @@ const GRID := 64 # cuadros por lado del terreno
 const HEIGHT := 6.0
 const RESOURCE_COUNTS := {"hierro": 40, "silicio": 25, "hielo": 25, "cobre": 20}
 const PLANT_COUNT := 80
+const RESOURCE_SCALE := 0.55 # tamaño de los recursos recogibles (malla y colisión)
 const STAR_COUNT := 400
 const ROCK_VARIANTS := 4 # formas distintas de cada tipo de roca
 
@@ -107,6 +108,26 @@ func _dusk() -> float:
 
 func height_at(x: float, z: float) -> float:
 	return noise.get_noise_2d(x, z) * HEIGHT
+
+
+## Altura del terreno tal como se dibuja: el triángulo de la malla que
+## contiene el punto. height_at da la del ruido, que en las lomas queda
+## hasta medio metro por encima y deja los objetos flotando.
+func surface_height(x: float, z: float) -> float:
+	var step := WORLD_SIZE / GRID
+	var half := WORLD_SIZE / 2.0
+	var x0 := -half + floorf((x + half) / step) * step
+	var z0 := -half + floorf((z + half) / step) * step
+	var u := (x - x0) / step
+	var v := (z - z0) / step
+	var ha := height_at(x0, z0)
+	var hb := height_at(x0 + step, z0)
+	var hc := height_at(x0, z0 + step)
+	var hd := height_at(x0 + step, z0 + step)
+	# Cada cuadro se parte en los triángulos (a, b, c) y (b, d, c).
+	if u + v <= 1.0:
+		return ha + (hb - ha) * u + (hc - ha) * v
+	return hd + (hc - hd) * (1.0 - u) + (hb - hd) * (1.0 - v)
 
 
 func _setup_gradients() -> void:
@@ -265,11 +286,12 @@ func _spawn_resources() -> void:
 			node.setup(type, mesh, def["material"], def["shape"], def["offset"])
 			node.position = pos
 			node.rotation.y = rng.randf_range(0.0, TAU)
+			node.scale = Vector3.ONE * RESOURCE_SCALE
 			add_child(node)
 
 
 func _spawn_player() -> void:
-	var base := Vector3(0.0, height_at(0.0, 0.0) + 1.0, 0.0)
+	var base := Vector3(0.0, surface_height(0.0, 0.0) + 1.0, 0.0)
 	player = Player.new()
 	player.position = base
 	if Game.player_position != null:
@@ -283,7 +305,7 @@ func _on_place_requested(kind: String) -> void:
 	var forward := -player.global_transform.basis.z
 	forward.y = 0.0
 	var pos := player.global_position + forward.normalized() * 4.0
-	pos.y = height_at(pos.x, pos.z)
+	pos.y = surface_height(pos.x, pos.z)
 	_spawn_machine(kind, pos, player.rotation.y)
 	Sfx.play("colocar")
 	Game.register_machine(kind, pos, player.rotation.y)
@@ -361,7 +383,7 @@ func _random_point(min_distance: float) -> Vector3:
 	while Vector2(x, z).length() < min_distance:
 		x = rng.randf_range(-limit, limit)
 		z = rng.randf_range(-limit, limit)
-	return Vector3(x, height_at(x, z), z)
+	return Vector3(x, surface_height(x, z), z)
 
 
 func _resource_def(meshes: Array, color: Color, shape: Shape3D, offset: Vector3) -> Dictionary:

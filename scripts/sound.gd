@@ -5,14 +5,24 @@ extends Node
 const MIX_RATE := 22050
 const PLAYERS := 8
 const WIND_LENGTH := 6.0 # segundos del bucle de viento
-const WIND_DB_DAY := -20.0
-const WIND_DB_NIGHT := -14.0
+# Volumen en lo más fuerte de una ráfaga.
+const WIND_DB_DAY := -28.0
+const WIND_DB_NIGHT := -22.0
+# Ráfagas largas y suaves separadas por pausas muy largas de silencio.
+const GUST_MIN := 8.0
+const GUST_MAX := 16.0
+const GUST_PAUSE_MIN := 25.0
+const GUST_PAUSE_MAX := 60.0
 
 var _sounds := {}
 var _players: Array[AudioStreamPlayer] = []
 var _next := 0
 var _wind: AudioStreamPlayer
 var _rng := RandomNumberGenerator.new()
+var _gust_time := 0.0
+var _gust_length := 0.0
+var _gust_pause := 0.0
+var _wind_level := 0.0 # volumen lineal actual del viento
 
 
 func _ready() -> void:
@@ -35,17 +45,33 @@ func _ready() -> void:
 		_players.append(player)
 	_wind = AudioStreamPlayer.new()
 	_wind.stream = _wind_loop()
-	_wind.volume_db = WIND_DB_DAY
+	_wind.volume_db = linear_to_db(0.0001)
+	# La primera ráfaga llega antes que las siguientes.
+	_gust_pause = _rng.randf_range(5.0, 15.0)
 	add_child(_wind)
 	_wind.play()
 
 
 func _process(delta: float) -> void:
-	# De noche el viento sopla más fuerte; con el planeta en pausa se apaga.
-	var target := WIND_DB_NIGHT if Game.is_night() else WIND_DB_DAY
-	if get_tree().paused:
-		target = -40.0
-	_wind.volume_db = move_toward(_wind.volume_db, target, 10.0 * delta)
+	# El viento va a ráfagas de duración y separación al azar para que no
+	# suene regular; de noche sopla más fuerte y con el juego en pausa se apaga.
+	var target := 0.0
+	if not get_tree().paused:
+		if _gust_pause > 0.0:
+			_gust_pause -= delta
+			if _gust_pause <= 0.0:
+				_gust_time = 0.0
+				_gust_length = _rng.randf_range(GUST_MIN, GUST_MAX)
+		else:
+			_gust_time += delta
+			if _gust_time >= _gust_length:
+				_gust_pause = _rng.randf_range(GUST_PAUSE_MIN, GUST_PAUSE_MAX)
+			else:
+				var peak := db_to_linear(WIND_DB_NIGHT if Game.is_night() else WIND_DB_DAY)
+				# Sube y baja despacio a lo largo de toda la ráfaga.
+				target = peak * pow(sin(PI * _gust_time / _gust_length), 2.0)
+	_wind_level = move_toward(_wind_level, target, 0.05 * delta)
+	_wind.volume_db = linear_to_db(maxf(_wind_level, 0.0001))
 
 
 func _exit_tree() -> void:
@@ -144,12 +170,12 @@ func _wind_loop() -> AudioStreamWAV:
 	var n := int(WIND_LENGTH * MIX_RATE)
 	var raw := PackedFloat32Array()
 	raw.resize(n)
-	var brown := 0.0
+	# Ruido blanco suavizado: un siseo de aire. El ruido marrón de antes,
+	# más grave, recordaba al oleaje.
+	var hiss := 0.0
 	for i in n:
-		brown = clampf(brown + _rng.randf_range(-0.04, 0.04), -1.0, 1.0) * 0.998
-		# Dos ráfagas por bucle (periodo entero para que encaje al repetirse).
-		var gust := 0.6 + 0.4 * sin(TAU * 2.0 * i / n)
-		raw[i] = brown * gust
+		hiss = lerpf(hiss, _rng.randf_range(-1.0, 1.0), 0.15)
+		raw[i] = hiss * 2.0
 	var fade := int(0.5 * MIX_RATE)
 	var samples := PackedFloat32Array()
 	samples.resize(n - fade)
