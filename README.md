@@ -43,10 +43,15 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 - Recoge **hierro** (rocas marrones), **silicio** (cristales azules), **hielo** (placas blancas) y **cobre** (rocas verdes).
 - Craftea **paneles solares** para tener energía (solo de día) y **generadores de oxígeno** para subir el oxígeno del planeta.
   Cada máquina necesita un panel para funcionar al 100 %.
-- El **índice** de terraformación es 40 % oxígeno + 40 % temperatura + 20 % biomasa: sin plantas se llega como mucho al 80 %.
+- La **perforadora de gases** (gasta 1 de energía) sube la **presión** del planeta; con más presión la niebla es más densa.
+- El **índice** de terraformación es 30 % oxígeno + 30 % temperatura + 20 % presión + 20 % biomasa: sin plantas se llega como mucho al 80 %.
+  En una partida guardada antes de que hubiera presión, esta empieza con el valor que deja el índice igual que antes.
+- **Pantallas:** la **pantalla de terraformación** muestra el índice, la etapa, cuánto falta para la siguiente y una barra por métrica.
+  Los **monitores** de oxígeno, calor, presión y biomasa muestran una sola métrica en grande y cuánto sube por minuto. No gastan energía
+  y se pueden poner dentro de la base.
 - Al llegar al 20 % del índice se desbloquea el **calentador**, que sube la temperatura.
 - Al llegar al 50 % (Deshielo) se desbloquean recetas con **cobre** (rocas verdes): turbina eólica (3 de energía),
-  generador y calentador avanzados (triple de efecto, gastan 2 de energía) y el tanque de oxígeno (reserva de 200).
+  generador y calentador avanzados y el **compresor atmosférico** (triple de efecto, gastan 2 de energía) y el tanque de oxígeno (reserva de 200).
 - **Deshielo en el mundo:** el hielo de los valles se encoge y desaparece (en las zonas altas queda una cuarta parte) y
   los lagos van subiendo poco a poco en los valles. Con el agua por encima de las rodillas andas más despacio.
 - **Agua:** se recoge con un clic en la superficie de un lago (no se agota) o con una **bomba de agua** (gasta 1 de energía,
@@ -110,7 +115,7 @@ scripts/game_state.gd  Estado global: inventario, recetas, métricas, etapas
 scripts/main.gd        Construye el mundo: terreno low poly, recursos, agua, plantas
 scripts/player.gd      Jugador en primera persona y recolección
 scripts/resource_node.gd  Depósitos de recursos que reaparecen
-scripts/machine.gd     Paneles, generadores y calentadores
+scripts/machine.gd     Máquinas, taquillas y pantallas
 scripts/hud.gd         Interfaz y menú de crafteo
 ```
 

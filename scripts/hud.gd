@@ -7,7 +7,7 @@ const Machine := preload("res://scripts/machine.gd")
 
 const MESSAGE_TIME := 4.0
 const ICON_SIZE := 96
-const BUILD_COLUMNS := 5
+const BUILD_COLUMNS := 7
 const MODE_COLORS := {
 	"recoger": Color(1.0, 0.85, 0.55),
 	"construir": Color(0.55, 0.88, 1.0),
@@ -166,8 +166,8 @@ func _process(delta: float) -> void:
 	elif _open_panel == locker_panel and _locker.stored_total() != _locker_total:
 		# La bomba y el bancal siguen produciendo con el panel abierto.
 		_refresh_locker()
-	planet_label.text = Game.clock_text() + ("  (noche)" if Game.is_night() else "") + "\nEtapa: %s\nOxígeno: %.1f %%\nTemperatura: %.1f %%\nBiomasa: %.1f %%\nÍndice: %.1f %%\nEnergía: %d producida / %d necesaria" % [
-		Game.STAGES[Game.stage]["name"], Game.oxygen, Game.temperature, Game.biomass,
+	planet_label.text = Game.clock_text() + ("  (noche)" if Game.is_night() else "") + "\nEtapa: %s\nOxígeno: %.1f %%\nTemperatura: %.1f %%\nPresión: %.1f %%\nBiomasa: %.1f %%\nÍndice: %.1f %%\nEnergía: %d producida / %d necesaria" % [
+		Game.STAGES[Game.stage]["name"], Game.oxygen, Game.temperature, Game.pressure, Game.biomass,
 		Game.terraform_index(), Game.energy_supply(), Game.energy_demand()]
 	if message_timer > 0.0:
 		message_timer -= delta
@@ -420,6 +420,11 @@ func _refresh_build_grid() -> void:
 				tip += "\nDa %d de energía" % energy
 			elif energy < 0:
 				tip += "\nGasta %d de energía" % -energy
+			for metric in Game.METRICS:
+				if float(Game.MACHINES[id].get(metric, 0)) > 0.0:
+					tip += "\nSube: %s" % String(Game.METRIC_NAMES[metric]).to_lower()
+			if Game.MACHINES[id].has("display"):
+				tip += "\nMuestra cómo va el planeta"
 		button.tooltip_text = tip
 		var box := VBoxContainer.new()
 		box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)

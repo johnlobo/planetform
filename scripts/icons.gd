@@ -89,6 +89,9 @@ func _model(kind: String) -> Node3D:
 	var machine := Machine.new()
 	machine.setup(kind)
 	machine.set_process(false)
+	if Game.MACHINES[kind].has("display"):
+		# Barras a medias para que se vea que es una pantalla.
+		machine.update_screen(0.6)
 	# Sin colisión: en este mundo aparte no tiene nada con lo que chocar.
 	machine.collision_layer = 0
 	return machine

@@ -111,8 +111,8 @@ func _process(delta: float) -> void:
 	sky_material.ground_horizon_color = sky_material.sky_horizon_color
 	sky_material.ground_bottom_color = sky_material.sky_horizon_color.darkened(0.5)
 	environment.fog_light_color = sky_material.sky_horizon_color
-	# Con atmósfera la niebla es más densa: el aire se ve.
-	environment.fog_density = lerpf(0.004, 0.009, t)
+	# Con más presión la atmósfera es más densa: el aire se ve.
+	environment.fog_density = lerpf(0.004, 0.009, Game.pressure / 100.0)
 	# De noche queda algo de luz azulada para que se vea el terreno.
 	environment.ambient_light_color = sky.lightened(0.3).lerp(Color(0.25, 0.3, 0.5), night * 0.8)
 	environment.ambient_light_energy = lerpf(0.6, 0.35, night)
