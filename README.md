@@ -23,8 +23,9 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 | Clic izquierdo | Usar la herramienta (y capturar el ratón) |
 | 1 / 2 / 3 o rueda del ratón | Cambiar el modo de la herramienta: recoger, construir o desmontar |
 | Tab o C | Abrir y cerrar el menú de crafteo (herramientas y botellas) |
-| E | Abrir la taquilla o la bomba de agua que miras |
+| E | Abrir la taquilla, la bomba de agua o el bancal que miras |
 | Q | Usar una botella de oxígeno |
+| F | Comer (verduras, raciones o guiso) |
 | H | Abrir y cerrar el menú de pausa |
 | Esc | Cerrar el menú de crafteo o soltar el ratón |
 | R / rueda del ratón | Girar lo que estás colocando |
@@ -52,6 +53,10 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
   saca 1 de agua cada 6 s, guarda hasta 20; se abre con E para sacarla).
 - **Biomasa:** las **semillas de musgo** (1 agua + 1 silicio) se plantan fuera con el menú de construcción. El musgo crece
   solo, no gasta energía y sube la biomasa. El **bancal de cultivo** (con lámpara) la sube el triple pero gasta 1 de energía; va bien dentro de la base.
+- **Comida y hambre:** la barra de **comida** se vacía en 12 minutos (tres días), también dentro de la base. Con **F** comes:
+  primero verduras (+20), luego raciones (+40) y luego guiso (+100). Si la barra llega a 0 tienes 60 segundos para comer o te desmayas.
+  Empiezas con 5 **raciones de emergencia**. El **bancal de cultivo** da 1 de **verduras** cada 20 s con toda la energía (guarda hasta 12;
+  se ven los frutos rojos y se abre con E para sacarlas). Con 3 verduras + 1 agua se craftea un **guiso**, que llena la barra entera.
 - **Día y noche:** un día dura 4 minutos. De noche tu **calor** baja (menos cuanto más caliente está el planeta)
   salvo si estás a menos de 8 m de un calentador con energía; de día se recupera. Si el calor llega a 0, gastas oxígeno el triple de rápido.
 - **Colocar:** lo que se construye no aparece solo: una silueta sigue tu mirada, verde donde se puede construir y roja donde no
@@ -60,7 +65,7 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
   común desaparece. A sus paredes se les añaden **puertas** (con rampa) y **ventanas**. Dentro de un módulo se rellena tu oxígeno
   y no pasas frío, y se pueden colocar máquinas sobre su suelo.
 - Tu oxígeno baja con el tiempo; las **botellas** lo recargan. Si llega a cero, mueres.
-- Al morir, la pantalla se funde a negro en 3 segundos y sale **GAME OVER**; con Enter vuelves a la base con el oxígeno y el calor al máximo.
+- Al morir, la pantalla se funde a negro en 3 segundos y sale **GAME OVER**; con Enter vuelves a la base con el oxígeno, el calor y la comida al máximo.
 - Etapas: Roca muerta (0 %) → Primera neblina (20 %) → Deshielo (50 %, hielo que se funde, lagos, musgo) → Habitable (100 %, aparecen árboles).
 
 La partida se guarda sola cada 15 segundos, al cambiar de etapa, al cerrar la ventana, al perder el foco y, en el navegador, al ocultar la pestaña.

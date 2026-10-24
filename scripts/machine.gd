@@ -9,9 +9,12 @@ var data := {}
 ## Caja que ocupa en el suelo (ancho, alto, fondo), para comprobar dónde cabe.
 var footprint := Vector3.ONE
 var _spinner: Node3D
-# La bomba de agua: cabezal que sube y baja, y segundos acumulados de bombeo.
+# La bomba de agua: cabezal que sube y baja.
 var _piston: Node3D
-var _pump_time := 0.0
+# Segundos acumulados de producción (agua de la bomba, verduras del bancal).
+var _produce_time := 0.0
+# Frutos del bancal: se ve uno por cada verdura lista para recoger.
+var _fruits: Array[Node3D] = []
 # El musgo nace pequeño y crece hasta su tamaño en GROW_TIME segundos.
 var _growth := 1.0
 const GROW_TIME := 40.0
@@ -174,9 +177,21 @@ func setup(machine_kind: String) -> void:
 			sprout.radial_segments = 4
 			var green := StandardMaterial3D.new()
 			green.albedo_color = Color(0.3, 0.7, 0.25)
+			var fruit := SphereMesh.new()
+			fruit.radius = 0.08
+			fruit.height = 0.15
+			fruit.radial_segments = 6
+			fruit.rings = 3
+			var red := StandardMaterial3D.new()
+			red.albedo_color = Color(0.9, 0.25, 0.12)
+			red.roughness = 0.6
 			for i in 6:
 				for j in 2:
-					_mesh(sprout, Vector3(-0.65 + i * 0.26, 0.62, -0.18 + j * 0.36), green)
+					var spot := Vector3(-0.65 + i * 0.26, 0.62, -0.18 + j * 0.36)
+					_mesh(sprout, spot, green)
+					var ripe := _mesh(fruit, spot + Vector3(0, 0.14, 0), red)
+					ripe.visible = false
+					_fruits.append(ripe)
 	mesh_instance.material_override = material
 	add_child(mesh_instance)
 	var collision := CollisionShape3D.new()
@@ -294,21 +309,25 @@ func _process(delta: float) -> void:
 		_growth = minf(1.0, _growth + delta / GROW_TIME)
 		scale = Vector3.ONE * lerpf(0.3, 1.0, _growth)
 	if Game.MACHINES[kind].has("produces"):
-		_pump(delta)
+		_produce(delta)
 
 
-## La bomba saca una unidad cada PUMP_TIME segundos, más despacio si le
-## falta energía, hasta llenarse.
-func _pump(delta: float) -> void:
+## La bomba y el bancal sacan una unidad cada "produce_time" segundos, más
+## despacio si les falta energía, hasta llenarse.
+func _produce(delta: float) -> void:
 	var ratio := Game.energy_ratio()
-	var full := stored_total() >= capacity()
+	var total := stored_total()
+	var full := total >= capacity()
 	if _piston:
 		_piston.position.y = 1.5 + (0.0 if full or ratio <= 0.0 else sin(Time.get_ticks_msec() * 0.006) * 0.12)
+	for i in _fruits.size():
+		_fruits[i].visible = i < total
 	if full or ratio <= 0.0 or data.is_empty():
 		return
-	_pump_time += delta * ratio
-	if _pump_time >= Game.PUMP_TIME:
-		_pump_time -= Game.PUMP_TIME
+	_produce_time += delta * ratio
+	var period := float(Game.MACHINES[kind]["produce_time"])
+	if _produce_time >= period:
+		_produce_time -= period
 		var resource := String(Game.MACHINES[kind]["produces"])
 		items()[resource] = int(items().get(resource, 0)) + 1
 

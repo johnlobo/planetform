@@ -92,6 +92,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			Game.locker_requested.emit(target)
 	elif event.is_action_pressed("use_bottle"):
 		Game.use_bottle()
+	elif event.is_action_pressed("eat"):
+		Game.eat()
 	elif event.is_action_pressed("release_mouse"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
