@@ -30,7 +30,14 @@ const RECIPES := {
 	"turbina": {"name": "Turbina eólica", "cost": {"hierro": 3, "cobre": 2}, "kind": "building", "stage": 2},
 	"generador_avanzado": {"name": "Generador avanzado", "cost": {"hierro": 4, "cobre": 3, "hielo": 3}, "kind": "building", "stage": 2},
 	"calentador_avanzado": {"name": "Calentador avanzado", "cost": {"hierro": 4, "cobre": 3, "silicio": 2}, "kind": "building", "stage": 2},
+	# Base: módulos que encajan entre sí y piezas para sus paredes.
+	"modulo": {"name": "Módulo de hábitat", "cost": {"hierro": 6, "silicio": 2}, "kind": "module", "stage": 0},
+	"puerta": {"name": "Puerta", "cost": {"hierro": 2}, "kind": "fitting", "stage": 0},
+	"ventana": {"name": "Ventana", "cost": {"hierro": 1, "silicio": 2}, "kind": "fitting", "stage": 0},
 }
+
+# Recetas que se colocan en el mundo en vez de ir al inventario.
+const PLACEABLE_KINDS := ["building", "module", "fitting"]
 
 # Efecto de cada construcción: energía que da (+) o gasta (-) y cuánto sube
 # cada métrica del planeta, en múltiplos de MACHINE_RATE. "solar" = no da
@@ -64,6 +71,7 @@ const WARMTH_MAX := 100.0
 const WARMTH_DRAIN := 2.0 # por segundo de noche, con el planeta a 0 % de temperatura
 const WARMTH_REGEN := 5.0 # por segundo de día o junto a un calentador
 const HEATER_RANGE := 8.0 # metros
+const SHELTER_O2_REFILL := 20.0 # oxígeno por segundo dentro de un módulo
 const LOW_O2_WARNING := 0.2 # fracción de la reserva a la que se avisa
 const COLD_WARNING := 25.0 # por debajo de este calor se avisa al jugador
 const COLD_O2_FACTOR := 3.0 # multiplica el gasto de oxígeno cuando el calor llega a 0
@@ -97,6 +105,10 @@ var placing := false
 var hint := ""
 # Construcciones colocadas: [{"kind", "x", "y", "z", "rot"}], para el guardado.
 var machines: Array = []
+# Módulos de la base: [{"x", "y", "z", "rot", "sides"}].
+var modules: Array = []
+# true mientras el jugador está dentro de un módulo de la base.
+var sheltered := false
 # Posición del jugador leída de la partida guardada, o null si no hay.
 var player_position = null
 var _autosave_timer := 0.0
@@ -130,10 +142,14 @@ func _process(delta: float) -> void:
 		_update_stage()
 
 	_update_day_and_cold(delta)
-	var drain := PLAYER_O2_DRAIN * (1.0 - oxygen / 100.0)
-	if warmth <= 0.0:
-		drain *= COLD_O2_FACTOR
-	player_oxygen -= drain * delta
+	if sheltered:
+		# Dentro de la base hay aire: la reserva se rellena.
+		player_oxygen = minf(player_o2_max(), player_oxygen + SHELTER_O2_REFILL * delta)
+	else:
+		var drain := PLAYER_O2_DRAIN * (1.0 - oxygen / 100.0)
+		if warmth <= 0.0:
+			drain *= COLD_O2_FACTOR
+		player_oxygen -= drain * delta
 	var low_oxygen := player_oxygen <= player_o2_max() * LOW_O2_WARNING
 	if low_oxygen and not _was_low_oxygen:
 		message.emit("Oxígeno bajo: usa una botella (Q).")
@@ -188,7 +204,7 @@ func _update_day_and_cold(delta: float) -> void:
 		message.emit("Amanece.")
 	_was_night = night
 
-	if night and not _near_heater():
+	if night and not sheltered and not _near_heater():
 		# Cuanto más caliente está el planeta, menos frío hace de noche.
 		warmth -= WARMTH_DRAIN * (1.0 - temperature / 100.0) * delta
 	else:
@@ -289,7 +305,7 @@ func craft(id: String) -> bool:
 		return false
 	var recipe: Dictionary = RECIPES[id]
 	# Las construcciones se pagan al colocarlas, así cancelar no cuesta nada.
-	if String(recipe["kind"]) == "building":
+	if is_placeable(id):
 		place_requested.emit(id)
 		return true
 	var cost: Dictionary = recipe["cost"]
@@ -310,15 +326,18 @@ func craft(id: String) -> bool:
 	return true
 
 
-## Descuenta el coste de una construcción al colocarla y la apunta en la
-## partida. Devuelve false si ya no hay materiales.
-func build(kind: String, pos: Vector3, rot: float) -> bool:
-	if not can_craft(kind):
+func is_placeable(id: String) -> bool:
+	return String(RECIPES[id]["kind"]) in PLACEABLE_KINDS
+
+
+## Descuenta el coste de algo que se acaba de colocar. Devuelve false si ya
+## no hay materiales.
+func pay(id: String) -> bool:
+	if not can_craft(id):
 		return false
-	var cost: Dictionary = RECIPES[kind]["cost"]
+	var cost: Dictionary = RECIPES[id]["cost"]
 	for res in cost:
 		inventory[res] = int(inventory[res]) - int(cost[res])
-	register_machine(kind, pos, rot)
 	inventory_changed.emit()
 	return true
 
@@ -392,6 +411,7 @@ func save_game() -> void:
 		"warmth": warmth,
 		"finished": finished,
 		"machines": machines,
+		"modules": modules,
 	}
 	var player := get_tree().get_first_node_in_group("player") as Node3D
 	if player:
@@ -437,6 +457,9 @@ func load_game() -> bool:
 		if typeof(m) == TYPE_DICTIONARY and MACHINES.has(m.get("kind", "")):
 			machines.append(m)
 			_count_machine(String(m["kind"]))
+	for m in data.get("modules", []):
+		if typeof(m) == TYPE_DICTIONARY:
+			modules.append(m)
 	var p = data.get("player")
 	if p is Array and p.size() == 3:
 		player_position = Vector3(float(p[0]), float(p[1]), float(p[2]))
@@ -478,6 +501,8 @@ func _reset_state() -> void:
 	ui_open = false
 	placing = false
 	machines = []
+	modules = []
+	sheltered = false
 	player_position = null
 	_autosave_timer = 0.0
 
