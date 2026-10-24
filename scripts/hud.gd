@@ -10,7 +10,6 @@ var oxygen_bar: ProgressBar
 var warmth_bar: ProgressBar
 var hint_label: Label
 var message_label: Label
-var pause_label: Label
 var craft_panel: PanelContainer
 var craft_list: VBoxContainer
 var death_overlay: ColorRect
@@ -21,7 +20,7 @@ var _waiting_respawn := false
 
 
 func _ready() -> void:
-	# El HUD sigue activo con el juego en pausa para poder reanudarlo con H.
+	# El HUD sigue activo con el juego en pausa para la pantalla de game over.
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	inventory_label = _label(Control.PRESET_TOP_LEFT, Vector2(16, 16))
 
@@ -45,13 +44,7 @@ func _ready() -> void:
 	help.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	help.offset_left = 16
 	help.offset_bottom = -16
-	help.text = "WASD mover · Espacio saltar · Clic recoger · Tab craftear · Q usar botella\nH pausa · F9 nueva partida · Esc soltar ratón"
-
-	pause_label = _label(Control.PRESET_CENTER, Vector2(-160, -80))
-	pause_label.custom_minimum_size.x = 320
-	pause_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	pause_label.text = "PAUSA\n(H para continuar)"
-	pause_label.visible = false
+	help.text = "WASD mover · Espacio saltar · Clic recoger · Tab craftear · Q usar botella\nH menú · Esc soltar ratón"
 
 	# Barras abajo a la derecha; el contenedor crece hacia arriba y a la izquierda.
 	var oxygen_box := VBoxContainer.new()
@@ -96,22 +89,23 @@ func _input(event: InputEvent) -> void:
 		if _waiting_respawn and event.is_action_pressed("ui_accept"):
 			_respawn()
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("pause"):
-		_toggle_pause()
-		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("craft") and not get_tree().paused:
 		_toggle_craft()
 		get_viewport().set_input_as_handled()
-
-
-func _toggle_pause() -> void:
-	var paused := not get_tree().paused
-	if paused and craft_panel.visible:
+	elif event.is_action_pressed("release_mouse") and craft_panel.visible:
 		_toggle_craft()
-	get_tree().paused = paused
-	pause_label.visible = paused
-	# Al reanudar, el ratón se vuelve a capturar con un clic, como al empezar.
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		get_viewport().set_input_as_handled()
+
+
+## Se llama al abrir el menú: cierra el crafteo y oculta la interfaz.
+func on_menu_opened() -> void:
+	if craft_panel.visible:
+		_toggle_craft()
+	visible = false
+
+
+func on_menu_closed() -> void:
+	visible = true
 
 
 func _process(delta: float) -> void:
@@ -153,7 +147,7 @@ func _build_craft_panel() -> void:
 	var box := VBoxContainer.new()
 	margin.add_child(box)
 	var title := Label.new()
-	title.text = "Crafteo (Tab para cerrar)"
+	title.text = "Crafteo (Tab o Esc para cerrar)"
 	box.add_child(title)
 	craft_list = VBoxContainer.new()
 	box.add_child(craft_list)
@@ -182,7 +176,6 @@ func _on_player_died(cause: String) -> void:
 	if craft_panel.visible:
 		_toggle_craft()
 	get_tree().paused = true
-	pause_label.visible = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	death_label.text = "GAME OVER\n\n%s\n\nPulsa Enter para volver a la base" % cause
 	death_overlay.color.a = 0.0

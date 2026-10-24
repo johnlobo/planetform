@@ -23,9 +23,8 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 | Clic izquierdo | Recoger el recurso que miras (y capturar el ratón) |
 | Tab o C | Abrir y cerrar el menú de crafteo |
 | Q | Usar una botella de oxígeno |
-| H | Pausar y reanudar la partida |
-| F9 | Borrar la partida guardada y empezar una nueva |
-| Esc | Soltar el ratón |
+| H | Abrir y cerrar el menú de pausa |
+| Esc | Cerrar el menú de crafteo o soltar el ratón |
 
 ## Cómo se juega
 
@@ -41,7 +40,8 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 - Al morir, la pantalla se funde a negro en 3 segundos y sale **GAME OVER**; con Enter vuelves a la base con el oxígeno y el calor al máximo.
 - Etapas: Roca muerta (0 %) → Primera neblina (25 %) → Deshielo (60 %, aparece agua) → Habitable (100 %, aparecen plantas).
 
-La partida se guarda sola cada 15 segundos, al cambiar de etapa, al cerrar la ventana, al perder el foco y, en el navegador, al ocultar la pestaña. Se carga al arrancar.
+La partida se guarda sola cada 15 segundos, al cambiar de etapa, al cerrar la ventana, al perder el foco y, en el navegador, al ocultar la pestaña.
+Al arrancar sale el menú principal: **Continuar partida** carga lo guardado y **Nueva partida** (pide confirmación) la borra y empieza de cero. Con **H** se abre el mismo menú como pausa.
 Se guarda en `user://partida.json` (en el escritorio, la carpeta de datos de usuario de Godot; en el navegador, el almacenamiento del navegador).
 
 Todas las cantidades son provisionales y están en `scripts/game_state.gd`.

@@ -87,6 +87,8 @@ var _was_cold := false
 var _was_frozen := false
 # true desde que el jugador muere hasta que vuelve a la base.
 var dead := false
+# true mientras se muestra la pantalla de título: aún no se ha empezado a jugar.
+var in_title := false
 var ui_open := false
 var hint := ""
 # Construcciones colocadas: [{"kind", "x", "y", "z", "rot"}], para el guardado.
@@ -95,6 +97,8 @@ var machines: Array = []
 var player_position = null
 var _autosave_timer := 0.0
 var _skip_next_load := false
+# true tras empezar una nueva partida, para no volver a la pantalla de título.
+var skip_title := false
 # En el navegador el cierre de la pestaña no avisa al juego; se guarda al ocultarla.
 var _js_visibility_callback
 
@@ -342,7 +346,8 @@ func _on_web_visibility_change(_args: Array) -> void:
 func save_game() -> void:
 	# Guardar al morir dejaría una partida que vuelve a matar al cargarla.
 	# Fuera del árbol (al cerrar la aplicación) ya no hay jugador que guardar.
-	if dead or not is_inside_tree():
+	# En el título no se guarda: crearía una partida vacía sin haber jugado.
+	if dead or in_title or not is_inside_tree():
 		return
 	var data := {
 		"version": 1,
@@ -416,6 +421,8 @@ func new_game() -> void:
 	_reset_state()
 	# Por si el archivo no se pudo borrar, la escena nueva no debe cargarlo.
 	_skip_next_load = true
+	skip_title = true
+	get_tree().paused = false
 	get_tree().reload_current_scene()
 
 
@@ -437,6 +444,7 @@ func _reset_state() -> void:
 	_was_cold = false
 	_was_frozen = false
 	dead = false
+	in_title = false
 	ui_open = false
 	machines = []
 	player_position = null
@@ -452,7 +460,6 @@ func _setup_input() -> void:
 	_add_key("craft", [KEY_TAB, KEY_C])
 	_add_key("use_bottle", [KEY_Q])
 	_add_key("release_mouse", [KEY_ESCAPE])
-	_add_key("new_game", [KEY_F9])
 	_add_key("pause", [KEY_H])
 
 
