@@ -1,25 +1,34 @@
 extends Node3D
-## Modo de colocación: una silueta de la construcción sigue a la mirada del
-## jugador, verde donde se puede construir y roja donde no. Clic izquierdo
-## la coloca, R o la rueda del ratón la giran y clic derecho o Esc cancelan.
+## Modo de colocación: una silueta de lo que se va a construir sigue a la
+## mirada del jugador, verde donde se puede y roja donde no. Clic izquierdo
+## coloca, R o la rueda del ratón giran y clic derecho o Esc cancelan.
+## Las máquinas van sobre el terreno o el suelo de la base, los módulos se
+## encajan al lado de otro módulo y las puertas y ventanas van en sus paredes.
 
 const Machine := preload("res://scripts/machine.gd")
+const Module := preload("res://scripts/module.gd")
 const Player := preload("res://scripts/player.gd")
 
 const REACH := 10.0 # metros desde la cámara
 const MAX_SLOPE := 0.7 # diferencia de altura máxima entre las esquinas, en metros
+const MODULE_MAX_SLOPE := 1.2 # los módulos tienen zócalo y aguantan más desnivel
 const ROTATE_STEP := PI / 12.0 # 15 grados por paso de rueda
 const SPACING := 0.2 # holgura entre construcciones, en metros
 
-var world: Node3D # el nodo main: da la altura del terreno y el nivel del agua
+var world: Node3D # el nodo main: da la altura del terreno, el agua y los módulos
 var terrain: CollisionObject3D
 var player: Player
 
 var _kind := ""
-var _ghost: Machine
+var _mode := "" # "building", "module" o "fitting", como en Game.RECIPES
+var _ghost: Node3D
 var _rotation := 0.0
 var _valid := false
 var _reason := ""
+var _tinted_valid := false
+# Pared elegida para una puerta o ventana.
+var _target_module: Module
+var _target_side := -1
 var _green := _ghost_material(Color(0.2, 1.0, 0.35, 0.45))
 var _red := _ghost_material(Color(1.0, 0.2, 0.15, 0.45))
 var _box := BoxShape3D.new()
@@ -28,11 +37,30 @@ var _box := BoxShape3D.new()
 func start(kind: String) -> void:
 	cancel()
 	_kind = kind
+	_mode = String(Game.RECIPES[kind]["kind"])
 	_rotation = 0.0
-	_ghost = Machine.new()
-	_ghost.setup(kind)
-	_ghost.make_ghost(_green)
+	match _mode:
+		"building":
+			var machine := Machine.new()
+			machine.setup(kind)
+			machine.make_ghost(_green)
+			_ghost = machine
+		"module":
+			var module := Module.new()
+			module.setup({}, true)
+			_ghost = module
+		"fitting":
+			_ghost = Node3D.new()
+			var hole := Module.opening_box(kind)
+			var mesh := BoxMesh.new()
+			mesh.size = hole.size + Vector3(0.1, 0.1, 0.1)
+			var instance := MeshInstance3D.new()
+			instance.mesh = mesh
+			instance.position = hole.get_center()
+			_ghost.add_child(instance)
 	add_child(_ghost)
+	_tint(_ghost, _green)
+	_tinted_valid = true
 	Game.placing = true
 	_update_ghost()
 
@@ -42,6 +70,7 @@ func cancel() -> void:
 		_ghost.queue_free()
 		_ghost = null
 	_kind = ""
+	_target_module = null
 	if Game.placing:
 		Game.placing = false
 		Game.hint = ""
@@ -94,31 +123,146 @@ func _update_ghost() -> void:
 	query.exclude = [player.get_rid()]
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	var point: Vector3 = hit["position"] if hit else from + forward * REACH
-	point.y = world.surface_height(point.x, point.z)
-	var rot := player.rotation.y + _rotation
-	_ghost.global_position = point
-	_ghost.rotation.y = rot
-	_reason = _check(point, rot, not hit.is_empty())
+	match _mode:
+		"building":
+			_reason = _place_machine(point, hit)
+		"module":
+			_reason = _place_module(point, hit)
+		"fitting":
+			_reason = _place_fitting(hit)
 	_valid = _reason == ""
-	_ghost.make_ghost(_green if _valid else _red)
+	if _valid != _tinted_valid:
+		_tint(_ghost, _green if _valid else _red)
+		_tinted_valid = _valid
 	var recipe_name: String = Game.RECIPES[_kind]["name"]
 	if _valid:
-		Game.hint = "%s · clic colocar · R girar · clic derecho cancelar" % recipe_name
+		var keys := "clic colocar · clic derecho cancelar" if _mode == "fitting" else "clic colocar · R girar · clic derecho cancelar"
+		Game.hint = "%s · %s" % [recipe_name, keys]
 	else:
 		Game.hint = "%s · %s" % [recipe_name, _reason]
 
 
-## Devuelve por qué no se puede construir en ese punto, o "" si se puede.
-func _check(point: Vector3, rot: float, in_reach: bool) -> String:
-	if not in_reach:
+## Coloca la silueta de una máquina y devuelve por qué no cabe, o "".
+func _place_machine(point: Vector3, hit: Dictionary) -> String:
+	var on_floor: bool = hit and hit["collider"].is_in_group("base_floor")
+	if not on_floor:
+		point.y = world.surface_height(point.x, point.z)
+	var rot := player.rotation.y + _rotation
+	_ghost.global_position = point
+	_ghost.rotation.y = rot
+	if hit.is_empty():
 		return "demasiado lejos"
+	var common := _check_area(point)
+	if common != "":
+		return common
+	var size: Vector3 = (_ghost as Machine).footprint
+	var basis := Basis(Vector3.UP, rot)
+	var exclude := [terrain.get_rid()]
+	if on_floor:
+		# El suelo de la base es plano: solo hace falta que no choque.
+		exclude.append(hit["collider"].get_rid())
+	else:
+		var heights := _corner_heights(point, basis, size)
+		if heights.y - heights.x > MAX_SLOPE:
+			return "terreno demasiado inclinado"
+	# Choca con otra construcción, un recurso o el propio jugador.
+	_box.size = size + Vector3(SPACING, 0.0, SPACING)
+	if _overlaps(Transform3D(basis, point + Vector3(0, size.y / 2.0 + 0.05, 0)), exclude):
+		return "no hay sitio"
+	return ""
+
+
+## Coloca la silueta de un módulo: pegado al módulo que se mira, o suelto
+## sobre el terreno si no se mira ninguno.
+func _place_module(point: Vector3, hit: Dictionary) -> String:
+	var target: Module = _module_of(hit["collider"]) if hit else null
+	var xform: Transform3D
+	var exclude := [terrain.get_rid()]
+	if target:
+		# Se encaja en el lado libre más cercano al punto que se mira.
+		var best := -1
+		var best_distance := INF
+		for i in 4:
+			if target.open[i]:
+				continue
+			var cell: Vector3 = target.global_transform * (Module.side_direction(i) * Module.SIZE)
+			var d := Vector2(cell.x - point.x, cell.z - point.z).length()
+			if d < best_distance:
+				best_distance = d
+				best = i
+		if best < 0:
+			return "no hay sitio"
+		xform = Transform3D(target.global_basis, target.global_transform * (Module.side_direction(best) * Module.SIZE))
+		_ghost.global_transform = xform
+		# Las paredes y la rampa del módulo vecino no cuentan como estorbo.
+		for child in target.get_children():
+			if child is CollisionObject3D:
+				exclude.append(child.get_rid())
+		for m in world.modules:
+			if m.global_position.distance_to(xform.origin) < 1.0:
+				return "ya hay un módulo"
+		var heights := _corner_heights(xform.origin, xform.basis, Vector3(Module.SIZE, 0, Module.SIZE))
+		if heights.y > xform.origin.y + Module.FLOOR + 0.2:
+			return "el terreno es demasiado alto"
+		if heights.x < xform.origin.y - Module.SKIRT:
+			return "el terreno es demasiado bajo"
+	else:
+		# El módulo queda delante del punto que se mira, no encima del jugador.
+		var ahead := -player.global_transform.basis.z
+		point += Vector3(ahead.x, 0, ahead.z).normalized() * Module.SIZE / 2.0
+		point.y = world.surface_height(point.x, point.z)
+		var basis := Basis(Vector3.UP, player.rotation.y + _rotation)
+		var heights := _corner_heights(point, basis, Vector3(Module.SIZE, 0, Module.SIZE))
+		# El suelo queda a la altura de la esquina más alta y el zócalo tapa el resto.
+		point.y = heights.y
+		xform = Transform3D(basis, point)
+		_ghost.global_transform = xform
+		if hit.is_empty():
+			return "demasiado lejos"
+		if heights.y - heights.x > MODULE_MAX_SLOPE:
+			return "terreno demasiado inclinado"
+	var common := _check_area(xform.origin)
+	if common != "":
+		return common
+	var inner := Module.SIZE - 0.6
+	_box.size = Vector3(inner, Module.HEIGHT, inner)
+	var center := xform.origin + Vector3(0, Module.FLOOR + Module.HEIGHT / 2.0 + 0.1, 0)
+	if _overlaps(Transform3D(xform.basis, center), exclude):
+		return "no hay sitio"
+	return ""
+
+
+## Coloca la silueta de una puerta o ventana en la pared que se mira.
+func _place_fitting(hit: Dictionary) -> String:
+	_target_module = null
+	_target_side = -1
+	var collider: Object = hit["collider"] if hit else null
+	var module := _module_of(collider)
+	if module == null or not collider.has_meta("side"):
+		_ghost.visible = false
+		return "apunta a una pared de un módulo"
+	_ghost.visible = true
+	var side: int = collider.get_meta("side")
+	_ghost.global_transform = module.global_transform * Transform3D(Basis(Vector3.UP, -side * PI / 2.0), Vector3.ZERO)
+	if String(module.sides[side]) != "pared":
+		return "esa pared ya tiene %s" % ("puerta" if module.sides[side] == "puerta" else "ventana")
+	_target_module = module
+	_target_side = side
+	return ""
+
+
+## Comprobaciones comunes: dentro del mapa y fuera del agua.
+func _check_area(point: Vector3) -> String:
 	var limit: float = world.WORLD_SIZE * 0.48
 	if absf(point.x) > limit or absf(point.z) > limit:
 		return "fuera de la zona"
 	if world.water.visible and point.y < world.water.position.y + 0.1:
 		return "bajo el agua"
-	var size: Vector3 = _ghost.footprint
-	var basis := Basis(Vector3.UP, rot)
+	return ""
+
+
+## Altura del terreno más baja (x) y más alta (y) en las cuatro esquinas.
+func _corner_heights(point: Vector3, basis: Basis, size: Vector3) -> Vector2:
 	var lowest := INF
 	var highest := -INF
 	for corner in [Vector3(-1, 0, -1), Vector3(1, 0, -1), Vector3(-1, 0, 1), Vector3(1, 0, 1)]:
@@ -126,17 +270,21 @@ func _check(point: Vector3, rot: float, in_reach: bool) -> String:
 		var h: float = world.surface_height(p.x, p.z)
 		lowest = minf(lowest, h)
 		highest = maxf(highest, h)
-	if highest - lowest > MAX_SLOPE:
-		return "terreno demasiado inclinado"
-	# Choca con otra construcción, un recurso o el propio jugador.
-	_box.size = size + Vector3(SPACING, 0.0, SPACING)
+	return Vector2(lowest, highest)
+
+
+func _overlaps(xform: Transform3D, exclude: Array) -> bool:
 	var shape_query := PhysicsShapeQueryParameters3D.new()
 	shape_query.shape = _box
-	shape_query.transform = Transform3D(basis, point + Vector3(0, size.y / 2.0 + 0.05, 0))
-	shape_query.exclude = [terrain.get_rid()]
-	if not get_world_3d().direct_space_state.intersect_shape(shape_query, 1).is_empty():
-		return "no hay sitio"
-	return ""
+	shape_query.transform = xform
+	shape_query.exclude = exclude
+	return not get_world_3d().direct_space_state.intersect_shape(shape_query, 1).is_empty()
+
+
+func _module_of(collider: Object) -> Module:
+	if collider and collider.has_meta("module"):
+		return collider.get_meta("module") as Module
+	return null
 
 
 func _confirm() -> void:
@@ -145,15 +293,39 @@ func _confirm() -> void:
 		Game.message.emit("Aquí no se puede construir: %s." % _reason)
 		return
 	var kind := _kind
-	var pos := _ghost.global_position
-	var rot := _ghost.rotation.y
-	if not Game.build(kind, pos, rot):
+	if not Game.pay(kind):
 		Game.message.emit("Te faltan materiales.")
 		cancel()
 		return
-	world.spawn_machine(kind, pos, rot)
+	match _mode:
+		"building":
+			var pos := _ghost.global_position
+			var rot := _ghost.rotation.y
+			Game.register_machine(kind, pos, rot)
+			world.spawn_machine(kind, pos, rot)
+		"module":
+			var pos := _ghost.global_position
+			var data := {"x": pos.x, "y": pos.y, "z": pos.z, "rot": _ghost.rotation.y, "sides": ["pared", "pared", "pared", "pared"]}
+			Game.modules.append(data)
+			world.spawn_module(data)
+		"fitting":
+			_target_module.set_side(_target_side, kind)
 	Sfx.play("colocar")
-	cancel()
+	# Las piezas de la base se suelen poner varias seguidas: se sigue
+	# colocando mientras haya materiales.
+	if _mode != "building" and Game.can_craft(kind):
+		_update_ghost()
+	else:
+		cancel()
+
+
+## Pone el material a todas las mallas de la silueta.
+static func _tint(node: Node, material: Material) -> void:
+	for child in node.get_children():
+		if child is MeshInstance3D:
+			child.material_override = material
+			child.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_tint(child, material)
 
 
 static func _ghost_material(color: Color) -> StandardMaterial3D:

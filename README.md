@@ -25,6 +25,8 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 | Q | Usar una botella de oxígeno |
 | H | Abrir y cerrar el menú de pausa |
 | Esc | Cerrar el menú de crafteo o soltar el ratón |
+| R / rueda del ratón | Girar lo que estás colocando |
+| Clic derecho o Esc | Cancelar la colocación |
 
 ## Cómo se juega
 
@@ -36,6 +38,11 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
   generador y calentador avanzados (triple de efecto, gastan 2 de energía) y el tanque de oxígeno (reserva de 200).
 - **Día y noche:** un día dura 4 minutos. De noche tu **calor** baja (menos cuanto más caliente está el planeta)
   salvo si estás a menos de 8 m de un calentador con energía; de día se recupera. Si el calor llega a 0, gastas oxígeno el triple de rápido.
+- **Colocar:** lo que se construye no aparece solo: una silueta sigue tu mirada, verde donde se puede construir y roja donde no
+  (el motivo sale en el centro). Se paga al colocarlo, así que cancelar no cuesta nada.
+- **Base:** el **módulo de hábitat** es una caja de 4 × 4 m. Si miras un módulo al colocar otro, se encaja a su lado y la pared
+  común desaparece. A sus paredes se les añaden **puertas** (con rampa) y **ventanas**. Dentro de un módulo no gastas oxígeno
+  ni pasas frío, y se pueden colocar máquinas sobre su suelo.
 - Tu oxígeno baja con el tiempo; las **botellas** lo recargan. Si llega a cero, mueres.
 - Al morir, la pantalla se funde a negro en 3 segundos y sale **GAME OVER**; con Enter vuelves a la base con el oxígeno y el calor al máximo.
 - Etapas: Roca muerta (0 %) → Primera neblina (25 %) → Deshielo (60 %, aparece agua) → Habitable (100 %, aparecen plantas).

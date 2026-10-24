@@ -246,7 +246,7 @@ func _refresh_craft_list() -> void:
 func _on_craft_pressed(id: String) -> void:
 	if not Game.craft(id):
 		return
-	if Game.RECIPES[id]["kind"] == "building":
+	if Game.is_placeable(id):
 		# Se cierra el menú para que el jugador vea la construcción colocada.
 		_toggle_craft()
 

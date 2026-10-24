@@ -8,6 +8,7 @@ const Player := preload("res://scripts/player.gd")
 const Hud := preload("res://scripts/hud.gd")
 const Menu := preload("res://scripts/menu.gd")
 const Placer := preload("res://scripts/placer.gd")
+const Module := preload("res://scripts/module.gd")
 
 const WORLD_SIZE := 160.0
 const GRID := 64 # cuadros por lado del terreno
@@ -34,6 +35,8 @@ var plants: Node3D
 var player: CharacterBody3D
 var terrain: StaticBody3D
 var placer: Node3D
+var modules: Array[Module] = []
+var _shelter_explained := false
 
 var sky_colors := Gradient.new()
 var ground_colors := Gradient.new()
@@ -52,6 +55,8 @@ func _ready() -> void:
 	_spawn_resources()
 	for m in Game.machines:
 		spawn_machine(String(m["kind"]), Vector3(float(m["x"]), float(m["y"]), float(m["z"])), float(m["rot"]))
+	for m in Game.modules:
+		spawn_module(m)
 	_spawn_player()
 	placer = Placer.new()
 	placer.world = self
@@ -76,6 +81,7 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	_update_shelter()
 	var t := Game.terraform_index() / 100.0
 	# 1 de día, 0 de noche, con una transición suave alrededor del horizonte.
 	var daylight := clampf(Game.sun_height() * 3.0 + 0.5, 0.0, 1.0)
@@ -320,6 +326,47 @@ func spawn_machine(kind: String, pos: Vector3, rot: float) -> void:
 	machine.position = pos
 	machine.rotation.y = rot
 	add_child(machine)
+
+
+func spawn_module(data: Dictionary) -> void:
+	var module := Module.new()
+	module.setup(data)
+	module.position = Vector3(float(data["x"]), float(data["y"]), float(data["z"]))
+	module.rotation.y = float(data["rot"])
+	add_child(module)
+	# Los lados pegados a otro módulo se abren en los dos para unirlos.
+	for other in modules:
+		if _adjacent(module, other):
+			module.set_open(module.side_towards(other.global_position), true)
+			other.set_open(other.side_towards(module.global_position), true)
+	modules.append(module)
+
+
+func _adjacent(a: Module, b: Module) -> bool:
+	var offset := b.global_position - a.global_position
+	if absf(offset.y) > 0.05:
+		return false
+	# Uno justo al lado del otro, no en diagonal.
+	var local := a.global_basis.inverse() * offset
+	var side_by_side := (absf(absf(local.x) - Module.SIZE) < 0.05 and absf(local.z) < 0.05) \
+			or (absf(absf(local.z) - Module.SIZE) < 0.05 and absf(local.x) < 0.05)
+	if not side_by_side:
+		return false
+	# Tienen que estar alineados: girados lo mismo o un múltiplo de 90 grados.
+	var turn := fposmod(a.rotation.y - b.rotation.y, PI / 2.0)
+	return minf(turn, PI / 2.0 - turn) < 0.02
+
+
+func _update_shelter() -> void:
+	var inside := false
+	for module in modules:
+		if module.contains(player.global_position + Vector3(0, 0.5, 0)):
+			inside = true
+			break
+	if inside and not Game.sheltered and not _shelter_explained:
+		_shelter_explained = true
+		Game.message.emit("Estás a cubierto: aquí no gastas oxígeno ni pasas frío.")
+	Game.sheltered = inside
 
 
 func _on_stage_changed(stage: int) -> void:
