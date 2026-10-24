@@ -192,6 +192,7 @@ func _on_place_requested(kind: String) -> void:
 	var pos := player.global_position + forward.normalized() * 4.0
 	pos.y = height_at(pos.x, pos.z)
 	_spawn_machine(kind, pos, player.rotation.y)
+	Sfx.play("colocar")
 	Game.register_machine(kind, pos, player.rotation.y)
 
 

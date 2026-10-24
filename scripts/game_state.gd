@@ -64,6 +64,7 @@ const WARMTH_MAX := 100.0
 const WARMTH_DRAIN := 2.0 # por segundo de noche, con el planeta a 0 % de temperatura
 const WARMTH_REGEN := 5.0 # por segundo de día o junto a un calentador
 const HEATER_RANGE := 8.0 # metros
+const LOW_O2_WARNING := 0.2 # fracción de la reserva a la que se avisa
 const COLD_WARNING := 25.0 # por debajo de este calor se avisa al jugador
 const COLD_O2_FACTOR := 3.0 # multiplica el gasto de oxígeno cuando el calor llega a 0
 const SAVE_PATH := "user://partida.json"
@@ -85,6 +86,7 @@ var warmth := WARMTH_MAX
 var _was_night := false
 var _was_cold := false
 var _was_frozen := false
+var _was_low_oxygen := false
 # true desde que el jugador muere hasta que vuelve a la base.
 var dead := false
 # true mientras se muestra la pantalla de título: aún no se ha empezado a jugar.
@@ -130,12 +132,18 @@ func _process(delta: float) -> void:
 	if warmth <= 0.0:
 		drain *= COLD_O2_FACTOR
 	player_oxygen -= drain * delta
+	var low_oxygen := player_oxygen <= player_o2_max() * LOW_O2_WARNING
+	if low_oxygen and not _was_low_oxygen:
+		message.emit("Oxígeno bajo: usa una botella (Q).")
+		Sfx.play("alarma")
+	_was_low_oxygen = low_oxygen
 	if player_oxygen <= 0.0:
 		_die("Te quedaste sin oxígeno." if warmth > 0.0 else "Te quedaste sin oxígeno por el frío.")
 
 
 func _die(cause: String) -> void:
 	dead = true
+	Sfx.play("muerte")
 	player_died.emit(cause)
 
 
@@ -146,6 +154,7 @@ func respawn() -> void:
 	warmth = WARMTH_MAX
 	_was_cold = false
 	_was_frozen = false
+	_was_low_oxygen = false
 	player_respawned.emit()
 	message.emit("Vuelves a la base.")
 
@@ -187,6 +196,7 @@ func _update_day_and_cold(delta: float) -> void:
 	var cold := warmth <= COLD_WARNING
 	if cold and not _was_cold:
 		message.emit("Te estás congelando: busca un calentador con energía.")
+		Sfx.play("alarma")
 	_was_cold = cold
 
 	var frozen := warmth <= 0.0
@@ -279,6 +289,8 @@ func craft(id: String) -> bool:
 	var cost: Dictionary = recipe["cost"]
 	for res in cost:
 		inventory[res] = int(inventory[res]) - int(cost[res])
+	if String(recipe["kind"]) != "building":
+		Sfx.play("craftear")
 	match String(recipe["kind"]):
 		"tool":
 			if id == "tanque":
@@ -330,6 +342,7 @@ func _update_stage() -> void:
 			message.emit("¡El planeta es habitable! Fin del prototipo.")
 		else:
 			message.emit("Nueva etapa: %s" % STAGES[stage]["name"])
+		Sfx.play("etapa")
 
 
 func _notification(what: int) -> void:
@@ -443,6 +456,7 @@ func _reset_state() -> void:
 	_was_night = false
 	_was_cold = false
 	_was_frozen = false
+	_was_low_oxygen = false
 	dead = false
 	in_title = false
 	ui_open = false

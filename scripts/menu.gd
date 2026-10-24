@@ -116,6 +116,7 @@ func _button(callback: Callable) -> Button:
 	var button := Button.new()
 	button.custom_minimum_size = Vector2(320, 48)
 	button.add_theme_font_size_override("font_size", 22)
+	button.pressed.connect(Sfx.play.bind("clic"))
 	button.pressed.connect(callback)
 	_box.add_child(button)
 	return button
