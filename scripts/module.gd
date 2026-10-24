@@ -11,8 +11,11 @@ const FLOOR := 0.25
 const ROOF := 0.25
 const SKIRT := 1.5 # zócalo bajo el suelo para que no flote en las cuestas
 const DOOR_SIZE := Vector2(1.4, 2.3)
-const WINDOW_SIZE := Vector2(2.0, 1.2)
-const WINDOW_BOTTOM := 1.0
+const WINDOW_SIZE := Vector2(3.0, 1.8)
+const WINDOW_BOTTOM := 0.7
+const FRAME := 0.08 # grosor del marco de puertas y ventanas
+const DOOR_RANGE := 2.5 # a esta distancia las hojas se abren solas
+const DOOR_SPEED := 2.5 # recorrido por segundo (0 cerrada, 1 abierta)
 const RAMP_LENGTH := 1.8
 const RAMP_ANGLE := 0.45 # radianes
 
@@ -26,6 +29,8 @@ var open: Array = [false, false, false, false]
 ## Entrada de Game.modules que se guarda con la partida.
 var data := {}
 var _ghost := false
+## Puertas correderas: {"center": Node3D, "leaves": [izquierda, derecha], "t": 0..1}.
+var _doors: Array = []
 
 
 func setup(module_data: Dictionary, ghost := false) -> void:
@@ -84,10 +89,30 @@ static func opening_box(kind: String) -> AABB:
 	return AABB(Vector3(-size.x / 2.0, bottom, -SIZE / 2.0 - 0.05), Vector3(size.x, size.y, WALL + 0.1))
 
 
+func _process(delta: float) -> void:
+	if _doors.is_empty():
+		return
+	var player := get_tree().get_first_node_in_group("player") as Node3D
+	for door in _doors:
+		var near := player != null and player.global_position.distance_to(door["center"].global_position) < DOOR_RANGE
+		var t: float = move_toward(door["t"], 1.0 if near else 0.0, DOOR_SPEED * delta)
+		if t == door["t"]:
+			continue
+		door["t"] = t
+		# Cada hoja se mete en la pared de su lado.
+		var width := (DOOR_SIZE.x - 2.0 * FRAME) / 2.0
+		var eased := smoothstep(0.0, 1.0, t)
+		for k in 2:
+			var leaf: Node3D = door["leaves"][k]
+			var sx := -1.0 if k == 0 else 1.0
+			leaf.position.x = sx * (width / 2.0 + eased * width)
+
+
 func _build() -> void:
 	for child in get_children():
 		remove_child(child)
 		child.queue_free()
+	_doors.clear()
 	var half := SIZE / 2.0
 	# Suelo aparte: sobre él se pueden colocar máquinas.
 	var floor_body := _body()
@@ -115,6 +140,8 @@ func _build() -> void:
 		match String(sides[i]):
 			"puerta":
 				_wall_with_hole(wall, z, DOOR_SIZE, 0.0)
+				if not _ghost:
+					_add_sliding_door(wall, z)
 				# Rampa para subir al suelo sin saltar.
 				var ramp := Basis(Vector3.RIGHT, -RAMP_ANGLE)
 				var length := RAMP_LENGTH
@@ -138,11 +165,36 @@ func _wall_with_hole(wall: Node3D, z: float, hole: Vector2, bottom: float) -> vo
 	_box(wall, Vector3(hole.x, HEIGHT - top, WALL), Vector3(0, FLOOR + (top + HEIGHT) / 2.0, z), "pared")
 	if bottom > 0.0:
 		_box(wall, Vector3(hole.x, bottom, WALL), Vector3(0, FLOOR + bottom / 2.0, z), "pared")
-	# Marco del hueco.
-	var frame := 0.08
+	# Marco por dentro del hueco. Si se solapa con la pared, sus caras coinciden
+	# con las del hueco y parpadean (z-fighting).
+	var frame := FRAME
 	for sx in [-1, 1]:
-		_box(wall, Vector3(frame, hole.y, WALL + 0.04), Vector3(sx * (hole.x / 2.0 + frame / 2.0), FLOOR + bottom + hole.y / 2.0, z), "acento", false)
-	_box(wall, Vector3(hole.x + frame * 2.0, frame, WALL + 0.04), Vector3(0, FLOOR + top + frame / 2.0, z), "acento", false)
+		_box(wall, Vector3(frame, hole.y, WALL + 0.04), Vector3(sx * (hole.x / 2.0 - frame / 2.0), FLOOR + bottom + hole.y / 2.0, z), "acento", false)
+	_box(wall, Vector3(hole.x, frame, WALL + 0.04), Vector3(0, FLOOR + top - frame / 2.0, z), "acento", false)
+	if bottom > 0.0:
+		_box(wall, Vector3(hole.x, frame, WALL + 0.04), Vector3(0, FLOOR + bottom + frame / 2.0, z), "acento", false)
+
+
+## Dos hojas finas que se deslizan dentro del grosor de la pared.
+func _add_sliding_door(wall: Node3D, z: float) -> void:
+	var width := (DOOR_SIZE.x - 2.0 * FRAME) / 2.0
+	var height := DOOR_SIZE.y - FRAME
+	var center := Node3D.new()
+	center.position = Vector3(0, FLOOR + height / 2.0, z)
+	wall.add_child(center)
+	var leaves := []
+	for sx in [-1.0, 1.0]:
+		var leaf := AnimatableBody3D.new()
+		leaf.sync_to_physics = false
+		leaf.set_meta("module", self)
+		leaf.set_meta("side", wall.get_meta("side"))
+		leaf.position.x = sx * width / 2.0
+		center.add_child(leaf)
+		_box(leaf, Vector3(width, height, 0.06), Vector3.ZERO, "hoja")
+		# Tirador vertical junto al borde que se junta con la otra hoja.
+		_box(leaf, Vector3(0.04, 0.5, 0.1), Vector3(-sx * (width / 2.0 - 0.08), 0, 0), "acento", false)
+		leaves.append(leaf)
+	_doors.append({"center": center, "leaves": leaves, "t": 0.0})
 
 
 func _body() -> Node3D:
@@ -188,6 +240,10 @@ static func _material(name: String) -> StandardMaterial3D:
 			material.emission = Color(1.0, 0.9, 0.7)
 		"acento":
 			material.albedo_color = Color(0.95, 0.55, 0.15)
+		"hoja":
+			material.albedo_color = Color(0.6, 0.63, 0.66)
+			material.metallic = 0.5
+			material.roughness = 0.4
 		"cristal":
 			material.albedo_color = Color(0.5, 0.8, 1.0, 0.3)
 			material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA

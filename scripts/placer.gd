@@ -14,6 +14,7 @@ const MAX_SLOPE := 0.7 # diferencia de altura máxima entre las esquinas, en met
 const MODULE_MAX_SLOPE := 1.2 # los módulos tienen zócalo y aguantan más desnivel
 const ROTATE_STEP := PI / 12.0 # 15 grados por paso de rueda
 const SPACING := 0.2 # holgura entre construcciones, en metros
+const SNAP_DISTANCE := 3.0 # a menos de esto de un hueco junto a otro módulo, se pega a él
 
 var world: Node3D # el nodo main: da la altura del terreno, el agua y los módulos
 var terrain: CollisionObject3D
@@ -172,44 +173,33 @@ func _place_machine(point: Vector3, hit: Dictionary) -> String:
 	return ""
 
 
-## Coloca la silueta de un módulo: pegado al módulo que se mira, o suelto
-## sobre el terreno si no se mira ninguno.
+## Coloca la silueta de un módulo. Si queda cerca del lado libre de otro
+## módulo, o se está mirando uno, se pega a él como un imán; si no, va
+## suelto sobre el terreno.
 func _place_module(point: Vector3, hit: Dictionary) -> String:
-	var target: Module = _module_of(hit["collider"]) if hit else null
+	var looked: Module = _module_of(hit["collider"]) if hit else null
+	if looked == null:
+		# Suelto queda delante del punto que se mira, no encima del jugador.
+		var ahead := -player.global_transform.basis.z
+		point += Vector3(ahead.x, 0, ahead.z).normalized() * Module.SIZE / 2.0
+	var snap := _snap_cell(point, looked != null)
 	var xform: Transform3D
 	var exclude := [terrain.get_rid()]
-	if target:
-		# Se encaja en el lado libre más cercano al punto que se mira.
-		var best := -1
-		var best_distance := INF
-		for i in 4:
-			if target.open[i]:
-				continue
-			var cell: Vector3 = target.global_transform * (Module.side_direction(i) * Module.SIZE)
-			var d := Vector2(cell.x - point.x, cell.z - point.z).length()
-			if d < best_distance:
-				best_distance = d
-				best = i
-		if best < 0:
-			return "no hay sitio"
-		xform = Transform3D(target.global_basis, target.global_transform * (Module.side_direction(best) * Module.SIZE))
+	if not snap.is_empty():
+		xform = snap["xform"]
 		_ghost.global_transform = xform
-		# Las paredes y la rampa del módulo vecino no cuentan como estorbo.
-		for child in target.get_children():
-			if child is CollisionObject3D:
-				exclude.append(child.get_rid())
+		# Las paredes y rampas de los módulos vecinos no cuentan como estorbo.
 		for m in world.modules:
-			if m.global_position.distance_to(xform.origin) < 1.0:
-				return "ya hay un módulo"
+			if m.global_position.distance_to(xform.origin) < Module.SIZE + 0.1:
+				for child in m.get_children():
+					if child is CollisionObject3D:
+						exclude.append(child.get_rid())
 		var heights := _corner_heights(xform.origin, xform.basis, Vector3(Module.SIZE, 0, Module.SIZE))
 		if heights.y > xform.origin.y + Module.FLOOR + 0.2:
 			return "el terreno es demasiado alto"
 		if heights.x < xform.origin.y - Module.SKIRT:
 			return "el terreno es demasiado bajo"
 	else:
-		# El módulo queda delante del punto que se mira, no encima del jugador.
-		var ahead := -player.global_transform.basis.z
-		point += Vector3(ahead.x, 0, ahead.z).normalized() * Module.SIZE / 2.0
 		point.y = world.surface_height(point.x, point.z)
 		var basis := Basis(Vector3.UP, player.rotation.y + _rotation)
 		var heights := _corner_heights(point, basis, Vector3(Module.SIZE, 0, Module.SIZE))
@@ -230,6 +220,34 @@ func _place_module(point: Vector3, hit: Dictionary) -> String:
 	if _overlaps(Transform3D(xform.basis, center), exclude):
 		return "no hay sitio"
 	return ""
+
+
+## Hueco libre junto a un módulo más cercano al punto: {"xform"} con la
+## posición y el giro del módulo vecino, o {} si no hay ninguno a menos de
+## SNAP_DISTANCE. Con always se acepta aunque esté más lejos (se mira un módulo).
+func _snap_cell(point: Vector3, always: bool) -> Dictionary:
+	var best := {}
+	var best_distance := INF
+	for m in world.modules:
+		for i in 4:
+			if m.open[i]:
+				continue
+			var cell: Vector3 = m.global_transform * (Module.side_direction(i) * Module.SIZE)
+			# Puede haber un módulo en diagonal que ocupe ya ese hueco.
+			var taken := false
+			for other in world.modules:
+				if other.global_position.distance_to(cell) < 1.0:
+					taken = true
+					break
+			if taken:
+				continue
+			var d := Vector2(cell.x - point.x, cell.z - point.z).length()
+			if d < best_distance:
+				best_distance = d
+				best = {"xform": Transform3D(m.global_basis, cell)}
+	if best.is_empty() or (not always and best_distance > SNAP_DISTANCE):
+		return {}
+	return best
 
 
 ## Coloca la silueta de una puerta o ventana en la pared que se mira.

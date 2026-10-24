@@ -365,7 +365,7 @@ func _update_shelter() -> void:
 			break
 	if inside and not Game.sheltered and not _shelter_explained:
 		_shelter_explained = true
-		Game.message.emit("Estás a cubierto: aquí no gastas oxígeno ni pasas frío.")
+		Game.message.emit("Estás a cubierto: aquí recuperas oxígeno y no pasas frío.")
 	Game.sheltered = inside
 
 

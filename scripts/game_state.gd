@@ -71,6 +71,7 @@ const WARMTH_MAX := 100.0
 const WARMTH_DRAIN := 2.0 # por segundo de noche, con el planeta a 0 % de temperatura
 const WARMTH_REGEN := 5.0 # por segundo de día o junto a un calentador
 const HEATER_RANGE := 8.0 # metros
+const SHELTER_O2_REFILL := 20.0 # oxígeno por segundo dentro de un módulo
 const LOW_O2_WARNING := 0.2 # fracción de la reserva a la que se avisa
 const COLD_WARNING := 25.0 # por debajo de este calor se avisa al jugador
 const COLD_O2_FACTOR := 3.0 # multiplica el gasto de oxígeno cuando el calor llega a 0
@@ -141,11 +142,14 @@ func _process(delta: float) -> void:
 		_update_stage()
 
 	_update_day_and_cold(delta)
-	# Dentro de la base hay aire: no se gasta oxígeno.
-	var drain := 0.0 if sheltered else PLAYER_O2_DRAIN * (1.0 - oxygen / 100.0)
-	if warmth <= 0.0:
-		drain *= COLD_O2_FACTOR
-	player_oxygen -= drain * delta
+	if sheltered:
+		# Dentro de la base hay aire: la reserva se rellena.
+		player_oxygen = minf(player_o2_max(), player_oxygen + SHELTER_O2_REFILL * delta)
+	else:
+		var drain := PLAYER_O2_DRAIN * (1.0 - oxygen / 100.0)
+		if warmth <= 0.0:
+			drain *= COLD_O2_FACTOR
+		player_oxygen -= drain * delta
 	var low_oxygen := player_oxygen <= player_o2_max() * LOW_O2_WARNING
 	if low_oxygen and not _was_low_oxygen:
 		message.emit("Oxígeno bajo: usa una botella (Q).")

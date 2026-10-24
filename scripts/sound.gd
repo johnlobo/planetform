@@ -135,7 +135,7 @@ func _step() -> AudioStreamWAV:
 	for i in n:
 		low = lerpf(low, _rng.randf_range(-1.0, 1.0), 0.25)
 		var env := pow(1.0 - float(i) / n, 3.0)
-		samples.append(low * env * 0.4)
+		samples.append(low * env * 0.18)
 	return _make_stream(samples)
 
 
