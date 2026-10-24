@@ -7,7 +7,8 @@ signal planet_changed
 signal stage_changed(stage: int)
 signal message(text: String)
 signal place_requested(kind: String)
-signal player_suffocated
+signal player_died(cause: String)
+signal player_respawned
 
 const RESOURCE_NAMES := {
 	"hierro": "Hierro",
@@ -32,9 +33,10 @@ const RECIPES := {
 }
 
 # Efecto de cada construcción: energía que da (+) o gasta (-) y cuánto sube
-# cada métrica del planeta, en múltiplos de MACHINE_RATE.
+# cada métrica del planeta, en múltiplos de MACHINE_RATE. "solar" = no da
+# energía de noche.
 const MACHINES := {
-	"panel": {"energy": 1, "oxygen": 0, "temperature": 0},
+	"panel": {"energy": 1, "oxygen": 0, "temperature": 0, "solar": true},
 	"turbina": {"energy": 3, "oxygen": 0, "temperature": 0},
 	"generador": {"energy": -1, "oxygen": 1, "temperature": 0},
 	"calentador": {"energy": -1, "oxygen": 0, "temperature": 1},
@@ -55,6 +57,15 @@ const PLAYER_O2_MAX := 100.0
 const TANK_O2_MAX := 200.0
 const PLAYER_O2_DRAIN := 0.5 # por segundo, con el planeta sin oxígeno
 const BOTTLE_REFILL := 50.0
+# Día y noche
+const DAY_LENGTH := 240.0 # segundos por día completo
+const START_TIME := 0.3 # 0 = medianoche, 0.5 = mediodía
+const WARMTH_MAX := 100.0
+const WARMTH_DRAIN := 2.0 # por segundo de noche, con el planeta a 0 % de temperatura
+const WARMTH_REGEN := 5.0 # por segundo de día o junto a un calentador
+const HEATER_RANGE := 8.0 # metros
+const COLD_WARNING := 25.0 # por debajo de este calor se avisa al jugador
+const COLD_O2_FACTOR := 3.0 # multiplica el gasto de oxígeno cuando el calor llega a 0
 const SAVE_PATH := "user://partida.json"
 const AUTOSAVE_TIME := 15.0
 
@@ -68,6 +79,14 @@ var temperature := 0.0
 var player_oxygen := PLAYER_O2_MAX
 var stage := 0
 var finished := false
+var time_of_day := START_TIME
+var day := 1
+var warmth := WARMTH_MAX
+var _was_night := false
+var _was_cold := false
+var _was_frozen := false
+# true desde que el jugador muere hasta que vuelve a la base.
+var dead := false
 var ui_open := false
 var hint := ""
 # Construcciones colocadas: [{"kind", "x", "y", "z", "rot"}], para el guardado.
@@ -93,7 +112,7 @@ func _process(delta: float) -> void:
 	if _autosave_timer >= AUTOSAVE_TIME:
 		_autosave_timer = 0.0
 		save_game()
-	if finished:
+	if finished or dead:
 		return
 	var ratio := energy_ratio()
 	if energy_demand() > 0:
@@ -102,11 +121,91 @@ func _process(delta: float) -> void:
 		planet_changed.emit()
 		_update_stage()
 
-	player_oxygen -= PLAYER_O2_DRAIN * (1.0 - oxygen / 100.0) * delta
+	_update_day_and_cold(delta)
+	var drain := PLAYER_O2_DRAIN * (1.0 - oxygen / 100.0)
+	if warmth <= 0.0:
+		drain *= COLD_O2_FACTOR
+	player_oxygen -= drain * delta
 	if player_oxygen <= 0.0:
-		player_oxygen = player_o2_max()
-		player_suffocated.emit()
-		message.emit("Te quedaste sin oxígeno. Vuelves a la base.")
+		_die("Te quedaste sin oxígeno." if warmth > 0.0 else "Te quedaste sin oxígeno por el frío.")
+
+
+func _die(cause: String) -> void:
+	dead = true
+	player_died.emit(cause)
+
+
+## Devuelve al jugador a la base con el oxígeno y el calor al máximo.
+func respawn() -> void:
+	dead = false
+	player_oxygen = player_o2_max()
+	warmth = WARMTH_MAX
+	_was_cold = false
+	_was_frozen = false
+	player_respawned.emit()
+	message.emit("Vuelves a la base.")
+
+
+## 1 a mediodía, -1 a medianoche.
+func sun_height() -> float:
+	return sin((time_of_day - 0.25) * TAU)
+
+
+func is_night() -> bool:
+	return sun_height() < 0.0
+
+
+func clock_text() -> String:
+	var minutes := int(time_of_day * 24.0 * 60.0)
+	return "Día %d · %02d:%02d" % [day, minutes / 60, minutes % 60]
+
+
+func _update_day_and_cold(delta: float) -> void:
+	time_of_day += delta / DAY_LENGTH
+	if time_of_day >= 1.0:
+		time_of_day -= 1.0
+		day += 1
+
+	var night := is_night()
+	if night and not _was_night:
+		message.emit("Cae la noche: hace frío, quédate cerca de un calentador.")
+	elif not night and _was_night:
+		message.emit("Amanece.")
+	_was_night = night
+
+	if night and not _near_heater():
+		# Cuanto más caliente está el planeta, menos frío hace de noche.
+		warmth -= WARMTH_DRAIN * (1.0 - temperature / 100.0) * delta
+	else:
+		warmth += WARMTH_REGEN * delta
+	warmth = clampf(warmth, 0.0, WARMTH_MAX)
+
+	var cold := warmth <= COLD_WARNING
+	if cold and not _was_cold:
+		message.emit("Te estás congelando: busca un calentador con energía.")
+	_was_cold = cold
+
+	var frozen := warmth <= 0.0
+	if frozen and not _was_frozen:
+		message.emit("Estás helado: gastas oxígeno el triple de rápido.")
+	_was_frozen = frozen
+
+
+func _near_heater() -> bool:
+	# Un calentador sin energía no calienta, igual que no sube la temperatura.
+	if energy_ratio() <= 0.0:
+		return false
+	var player := get_tree().get_first_node_in_group("player") as Node3D
+	if player == null:
+		return false
+	for m in machines:
+		var kind := String(m["kind"])
+		if int(MACHINES[kind]["temperature"]) <= 0:
+			continue
+		var pos := Vector3(float(m["x"]), float(m["y"]), float(m["z"]))
+		if pos.distance_to(player.global_position) <= HEATER_RANGE:
+			return true
+	return false
 
 
 func terraform_index() -> float:
@@ -119,7 +218,10 @@ func player_o2_max() -> float:
 
 func energy_supply() -> int:
 	var supply := 0
+	var night := is_night()
 	for kind in machine_counts:
+		if night and MACHINES[kind].get("solar", false):
+			continue
 		supply += maxi(0, int(MACHINES[kind]["energy"])) * int(machine_counts[kind])
 	return supply
 
@@ -238,6 +340,10 @@ func _on_web_visibility_change(_args: Array) -> void:
 
 
 func save_game() -> void:
+	# Guardar al morir dejaría una partida que vuelve a matar al cargarla.
+	# Fuera del árbol (al cerrar la aplicación) ya no hay jugador que guardar.
+	if dead or not is_inside_tree():
+		return
 	var data := {
 		"version": 1,
 		"inventory": inventory,
@@ -247,6 +353,9 @@ func save_game() -> void:
 		"temperature": temperature,
 		"player_oxygen": player_oxygen,
 		"stage": stage,
+		"time_of_day": time_of_day,
+		"day": day,
+		"warmth": warmth,
 		"finished": finished,
 		"machines": machines,
 	}
@@ -285,6 +394,10 @@ func load_game() -> bool:
 	temperature = float(data.get("temperature", 0.0))
 	player_oxygen = float(data.get("player_oxygen", PLAYER_O2_MAX))
 	stage = int(data.get("stage", 0))
+	time_of_day = float(data.get("time_of_day", START_TIME))
+	day = int(data.get("day", 1))
+	warmth = float(data.get("warmth", WARMTH_MAX))
+	_was_night = is_night()
 	finished = bool(data.get("finished", false))
 	for m in data.get("machines", []):
 		if typeof(m) == TYPE_DICTIONARY and MACHINES.has(m.get("kind", "")):
@@ -317,6 +430,13 @@ func _reset_state() -> void:
 	player_oxygen = PLAYER_O2_MAX
 	stage = 0
 	finished = false
+	time_of_day = START_TIME
+	day = 1
+	warmth = WARMTH_MAX
+	_was_night = false
+	_was_cold = false
+	_was_frozen = false
+	dead = false
 	ui_open = false
 	machines = []
 	player_position = null
@@ -333,6 +453,7 @@ func _setup_input() -> void:
 	_add_key("use_bottle", [KEY_Q])
 	_add_key("release_mouse", [KEY_ESCAPE])
 	_add_key("new_game", [KEY_F9])
+	_add_key("pause", [KEY_H])
 
 
 func _add_key(action: String, keys: Array) -> void:

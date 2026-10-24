@@ -49,10 +49,15 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	var t := Game.terraform_index() / 100.0
-	environment.background_color = sky_colors.sample(t)
-	environment.ambient_light_color = sky_colors.sample(t).lightened(0.3)
+	# 1 de día, 0 de noche, con una transición suave alrededor del horizonte.
+	var daylight := clampf(Game.sun_height() * 3.0 + 0.5, 0.0, 1.0)
+	var sky := sky_colors.sample(t)
+	environment.background_color = sky.darkened(0.85 * (1.0 - daylight))
+	environment.ambient_light_color = sky.lightened(0.3).darkened(0.7 * (1.0 - daylight))
 	ground_material.albedo_color = ground_colors.sample(t)
-	sun.light_energy = lerpf(0.6, 1.2, t)
+	sun.light_energy = lerpf(0.6, 1.2, t) * daylight
+	sun.rotation_degrees.x = -10.0 - 70.0 * maxf(Game.sun_height(), 0.0)
+	sun.rotation_degrees.y = 30.0 + Game.time_of_day * 360.0
 	if water.visible:
 		# El agua sube entre el 60 % y el 100 % del índice.
 		var w := clampf((Game.terraform_index() - 60.0) / 40.0, 0.0, 1.0)

@@ -23,18 +23,22 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 | Clic izquierdo | Recoger el recurso que miras (y capturar el ratón) |
 | Tab o C | Abrir y cerrar el menú de crafteo |
 | Q | Usar una botella de oxígeno |
+| H | Pausar y reanudar la partida |
 | F9 | Borrar la partida guardada y empezar una nueva |
 | Esc | Soltar el ratón |
 
 ## Cómo se juega
 
 - Recoge **hierro** (rocas marrones), **silicio** (cristales azules), **hielo** (placas blancas) y **cobre** (rocas verdes).
-- Craftea **paneles solares** para tener energía y **generadores de oxígeno** para subir el oxígeno del planeta.
+- Craftea **paneles solares** para tener energía (solo de día) y **generadores de oxígeno** para subir el oxígeno del planeta.
   Cada máquina necesita un panel para funcionar al 100 %.
 - Al llegar al 25 % del índice se desbloquea el **calentador**, que sube la temperatura.
 - Al llegar al 60 % (Deshielo) se desbloquean recetas con **cobre** (rocas verdes): turbina eólica (3 de energía),
   generador y calentador avanzados (triple de efecto, gastan 2 de energía) y el tanque de oxígeno (reserva de 200).
-- Tu oxígeno baja con el tiempo; las **botellas** lo recargan. Si llega a cero vuelves al punto de inicio.
+- **Día y noche:** un día dura 4 minutos. De noche tu **calor** baja (menos cuanto más caliente está el planeta)
+  salvo si estás a menos de 8 m de un calentador con energía; de día se recupera. Si el calor llega a 0, gastas oxígeno el triple de rápido.
+- Tu oxígeno baja con el tiempo; las **botellas** lo recargan. Si llega a cero, mueres.
+- Al morir, la pantalla se funde a negro en 3 segundos y sale **GAME OVER**; con Enter vuelves a la base con el oxígeno y el calor al máximo.
 - Etapas: Roca muerta (0 %) → Primera neblina (25 %) → Deshielo (60 %, aparece agua) → Habitable (100 %, aparecen plantas).
 
 La partida se guarda sola cada 15 segundos, al cambiar de etapa, al cerrar la ventana, al perder el foco y, en el navegador, al ocultar la pestaña. Se carga al arrancar.
