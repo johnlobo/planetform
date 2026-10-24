@@ -95,14 +95,17 @@ func _open() -> void:
 	_new_button.text = "Nueva partida"
 	visible = true
 	get_tree().paused = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	Game.in_title = _is_title
+	# Primero se avisa al HUD: al cerrar el crafteo vuelve a capturar el ratón.
 	opened.emit()
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_continue_button.grab_focus()
 
 
 func _close() -> void:
 	visible = false
 	_is_title = false
+	Game.in_title = false
 	get_tree().paused = false
 	# En el navegador el ratón solo se captura con un clic dentro del juego.
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if OS.has_feature("web") else Input.MOUSE_MODE_CAPTURED

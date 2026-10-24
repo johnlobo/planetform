@@ -87,6 +87,8 @@ var _was_cold := false
 var _was_frozen := false
 # true desde que el jugador muere hasta que vuelve a la base.
 var dead := false
+# true mientras se muestra la pantalla de título: aún no se ha empezado a jugar.
+var in_title := false
 var ui_open := false
 var hint := ""
 # Construcciones colocadas: [{"kind", "x", "y", "z", "rot"}], para el guardado.
@@ -344,7 +346,8 @@ func _on_web_visibility_change(_args: Array) -> void:
 func save_game() -> void:
 	# Guardar al morir dejaría una partida que vuelve a matar al cargarla.
 	# Fuera del árbol (al cerrar la aplicación) ya no hay jugador que guardar.
-	if dead or not is_inside_tree():
+	# En el título no se guarda: crearía una partida vacía sin haber jugado.
+	if dead or in_title or not is_inside_tree():
 		return
 	var data := {
 		"version": 1,
@@ -441,6 +444,7 @@ func _reset_state() -> void:
 	_was_cold = false
 	_was_frozen = false
 	dead = false
+	in_title = false
 	ui_open = false
 	machines = []
 	player_position = null

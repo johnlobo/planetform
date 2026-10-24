@@ -92,6 +92,9 @@ func _input(event: InputEvent) -> void:
 	elif event.is_action_pressed("craft") and not get_tree().paused:
 		_toggle_craft()
 		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("release_mouse") and craft_panel.visible:
+		_toggle_craft()
+		get_viewport().set_input_as_handled()
 
 
 ## Se llama al abrir el menú: cierra el crafteo y oculta la interfaz.
@@ -144,7 +147,7 @@ func _build_craft_panel() -> void:
 	var box := VBoxContainer.new()
 	margin.add_child(box)
 	var title := Label.new()
-	title.text = "Crafteo (Tab para cerrar)"
+	title.text = "Crafteo (Tab o Esc para cerrar)"
 	box.add_child(title)
 	craft_list = VBoxContainer.new()
 	box.add_child(craft_list)

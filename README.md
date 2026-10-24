@@ -24,7 +24,7 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 | Tab o C | Abrir y cerrar el menú de crafteo |
 | Q | Usar una botella de oxígeno |
 | H | Abrir y cerrar el menú de pausa |
-| Esc | Soltar el ratón |
+| Esc | Cerrar el menú de crafteo o soltar el ratón |
 
 ## Cómo se juega
 
