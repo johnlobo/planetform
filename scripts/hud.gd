@@ -44,7 +44,7 @@ func _ready() -> void:
 	help.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	help.offset_left = 16
 	help.offset_bottom = -16
-	help.text = "WASD mover · Espacio saltar · Clic recoger · Tab craftear · Q usar botella\nH menú · Esc soltar ratón"
+	help.text = "WASD mover · Espacio saltar · Clic recoger · Tab craftear · Q usar botella\nR girar construcción · Clic derecho cancelar · H menú · Esc soltar ratón"
 
 	# Barras abajo a la derecha; el contenedor crece hacia arriba y a la izquierda.
 	var oxygen_box := VBoxContainer.new()

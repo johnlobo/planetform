@@ -2,6 +2,8 @@ extends StaticBody3D
 ## Construcción colocada por el jugador (panel, generador o calentador).
 
 var kind := "panel"
+## Caja que ocupa en el suelo (ancho, alto, fondo), para comprobar dónde cabe.
+var footprint := Vector3.ONE
 var _spinner: Node3D
 
 
@@ -81,6 +83,19 @@ func setup(machine_kind: String) -> void:
 	collision.shape = shape
 	collision.position.y = shape.size.y / 2.0
 	add_child(collision)
+	footprint = shape.size
+
+
+## Convierte la construcción en una silueta sin colisión que se dibuja con
+## el material dado (verde o rojo en el modo de colocación).
+func make_ghost(material: Material) -> void:
+	for child in get_children():
+		if child is CollisionShape3D:
+			remove_child(child)
+			child.free()
+		elif child is MeshInstance3D:
+			child.material_override = material
+			child.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 
 func _process(delta: float) -> void:
