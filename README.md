@@ -23,7 +23,7 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 | Clic izquierdo | Usar la herramienta (y capturar el ratón) |
 | 1 / 2 / 3 o rueda del ratón | Cambiar el modo de la herramienta: recoger, construir o desmontar |
 | Tab o C | Abrir y cerrar el menú de crafteo (herramientas y botellas) |
-| E | Abrir la taquilla que miras |
+| E | Abrir la taquilla o la bomba de agua que miras |
 | Q | Usar una botella de oxígeno |
 | H | Abrir y cerrar el menú de pausa |
 | Esc | Cerrar el menú de crafteo o soltar el ratón |
@@ -42,9 +42,16 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 - Recoge **hierro** (rocas marrones), **silicio** (cristales azules), **hielo** (placas blancas) y **cobre** (rocas verdes).
 - Craftea **paneles solares** para tener energía (solo de día) y **generadores de oxígeno** para subir el oxígeno del planeta.
   Cada máquina necesita un panel para funcionar al 100 %.
-- Al llegar al 25 % del índice se desbloquea el **calentador**, que sube la temperatura.
-- Al llegar al 60 % (Deshielo) se desbloquean recetas con **cobre** (rocas verdes): turbina eólica (3 de energía),
+- El **índice** de terraformación es 40 % oxígeno + 40 % temperatura + 20 % biomasa: sin plantas se llega como mucho al 80 %.
+- Al llegar al 20 % del índice se desbloquea el **calentador**, que sube la temperatura.
+- Al llegar al 50 % (Deshielo) se desbloquean recetas con **cobre** (rocas verdes): turbina eólica (3 de energía),
   generador y calentador avanzados (triple de efecto, gastan 2 de energía) y el tanque de oxígeno (reserva de 200).
+- **Deshielo en el mundo:** el hielo de los valles se encoge y desaparece (en las zonas altas queda una cuarta parte) y
+  los lagos van subiendo poco a poco en los valles. Con el agua por encima de las rodillas andas más despacio.
+- **Agua:** se recoge con un clic en la superficie de un lago (no se agota) o con una **bomba de agua** (gasta 1 de energía,
+  saca 1 de agua cada 6 s, guarda hasta 20; se abre con E para sacarla).
+- **Biomasa:** las **semillas de musgo** (1 agua + 1 silicio) se plantan fuera con el menú de construcción. El musgo crece
+  solo, no gasta energía y sube la biomasa. El **bancal de cultivo** (con lámpara) la sube el triple pero gasta 1 de energía; va bien dentro de la base.
 - **Día y noche:** un día dura 4 minutos. De noche tu **calor** baja (menos cuanto más caliente está el planeta)
   salvo si estás a menos de 8 m de un calentador con energía; de día se recupera. Si el calor llega a 0, gastas oxígeno el triple de rápido.
 - **Colocar:** lo que se construye no aparece solo: una silueta sigue tu mirada, verde donde se puede construir y roja donde no
@@ -54,7 +61,7 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
   y no pasas frío, y se pueden colocar máquinas sobre su suelo.
 - Tu oxígeno baja con el tiempo; las **botellas** lo recargan. Si llega a cero, mueres.
 - Al morir, la pantalla se funde a negro en 3 segundos y sale **GAME OVER**; con Enter vuelves a la base con el oxígeno y el calor al máximo.
-- Etapas: Roca muerta (0 %) → Primera neblina (25 %) → Deshielo (60 %, aparece agua) → Habitable (100 %, aparecen plantas).
+- Etapas: Roca muerta (0 %) → Primera neblina (20 %) → Deshielo (50 %, hielo que se funde, lagos, musgo) → Habitable (100 %, aparecen árboles).
 
 La partida se guarda sola cada 15 segundos, al cambiar de etapa, al cerrar la ventana, al perder el foco y, en el navegador, al ocultar la pestaña.
 Al arrancar sale el menú principal: **Continuar partida** carga lo guardado y **Nueva partida** (pide confirmación) la borra y empieza de cero. Con **H** se abre el mismo menú como pausa.

@@ -35,6 +35,7 @@ var icons: Icons
 # Panel abierto ahora (crafteo, construcción o taquilla), o null.
 var _open_panel: Control
 var _locker: Machine
+var _locker_total := 0
 var death_overlay: ColorRect
 var death_label: Label
 var message_timer := 0.0
@@ -152,8 +153,11 @@ func _process(delta: float) -> void:
 	hint_label.text = "" if Game.ui_open else Game.hint
 	if _open_panel == locker_panel and not is_instance_valid(_locker):
 		_close_panel()
-	planet_label.text = Game.clock_text() + ("  (noche)" if Game.is_night() else "") + "\nEtapa: %s\nOxígeno: %.1f %%\nTemperatura: %.1f %%\nÍndice: %.1f %%\nEnergía: %d producida / %d necesaria" % [
-		Game.STAGES[Game.stage]["name"], Game.oxygen, Game.temperature,
+	elif _open_panel == locker_panel and _locker.stored_total() != _locker_total:
+		# La bomba sigue sacando agua con el panel abierto.
+		_refresh_locker()
+	planet_label.text = Game.clock_text() + ("  (noche)" if Game.is_night() else "") + "\nEtapa: %s\nOxígeno: %.1f %%\nTemperatura: %.1f %%\nBiomasa: %.1f %%\nÍndice: %.1f %%\nEnergía: %d producida / %d necesaria" % [
+		Game.STAGES[Game.stage]["name"], Game.oxygen, Game.temperature, Game.biomass,
 		Game.terraform_index(), Game.energy_supply(), Game.energy_demand()]
 	if message_timer > 0.0:
 		message_timer -= delta
@@ -460,17 +464,26 @@ func _on_locker_requested(locker: Machine) -> void:
 func _refresh_locker() -> void:
 	if not is_instance_valid(_locker):
 		return
-	locker_title.text = "Taquilla · %d / %d (E, Tab o Esc para cerrar)" % [_locker.stored_total(), _locker.capacity()]
+	_locker_total = _locker.stored_total()
+	var locker_name: String = Game.RECIPES[_locker.kind]["name"]
+	locker_title.text = "%s · %d / %d (E, Tab o Esc para cerrar)" % [locker_name, _locker.stored_total(), _locker.capacity()]
+	# En la bomba de agua solo se saca lo bombeado; no se guarda nada.
+	var accepts: bool = not Game.MACHINES[_locker.kind].has("produces")
 	for column in [locker_inventory, locker_contents]:
 		for child in column.get_children():
 			child.queue_free()
 	locker_inventory.add_child(_small_heading("Mochila"))
-	locker_contents.add_child(_small_heading("Taquilla"))
+	if not accepts:
+		var note := Label.new()
+		note.text = "Aquí solo se saca el agua bombeada."
+		note.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
+		locker_inventory.add_child(note)
+	locker_contents.add_child(_small_heading(locker_name))
 	var free := _locker.capacity() - _locker.stored_total()
 	var items := _locker.items()
 	for id in Game.inventory:
 		var have := int(Game.inventory[id])
-		if have > 0:
+		if have > 0 and accepts:
 			locker_inventory.add_child(_locker_row(id, have, mini(have, free), true))
 	for id in items:
 		var stored := int(items[id])

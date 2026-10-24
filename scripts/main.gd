@@ -9,6 +9,7 @@ const Hud := preload("res://scripts/hud.gd")
 const Menu := preload("res://scripts/menu.gd")
 const Placer := preload("res://scripts/placer.gd")
 const Module := preload("res://scripts/module.gd")
+const WaterBody := preload("res://scripts/water_body.gd")
 
 const WORLD_SIZE := 160.0
 const GRID := 64 # cuadros por lado del terreno
@@ -18,6 +19,15 @@ const PLANT_COUNT := 80
 const RESOURCE_SCALE := 0.55 # tamaño de los recursos recogibles (malla y colisión)
 const STAR_COUNT := 400
 const ROCK_VARIANTS := 4 # formas distintas de cada tipo de roca
+# Deshielo: los lagos suben de WATER_LOW a WATER_HIGH metros entre el índice
+# del Deshielo y el 100 %, sin pasar de WATER_SPEED metros por segundo.
+const WATER_LOW := -3.4
+const WATER_HIGH := -1.0
+const WATER_SPEED := 0.05
+# El hielo se derrite del todo entre el inicio del Deshielo y este índice.
+const MELT_END := 80.0
+const MELT_TIME := 0.25 # parte del Deshielo que tarda en derretirse cada bloque
+const ICE_KEPT := 0.25 # parte del hielo, la de los sitios más altos, que no se derrite
 
 var noise := FastNoiseLite.new()
 var rng := RandomNumberGenerator.new()
@@ -32,6 +42,12 @@ var star_material: StandardMaterial3D
 var ground_material: StandardMaterial3D
 var water: MeshInstance3D
 var plants: Node3D
+var water_area: Area3D
+# Bloques de hielo y, para cada uno, en qué punto del deshielo empieza a fundirse.
+var ice_nodes: Array[ResourceNode] = []
+var _melt_start := {}
+var _water_level := WATER_LOW
+var _deshielo_explained := false
 var player: CharacterBody3D
 var terrain: StaticBody3D
 var placer: Node3D
@@ -81,7 +97,7 @@ func _ready() -> void:
 		menu.open_title(loaded)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	_update_shelter()
 	var t := Game.terraform_index() / 100.0
 	# 1 de día, 0 de noche, con una transición suave alrededor del horizonte.
@@ -111,9 +127,37 @@ func _process(_delta: float) -> void:
 	sun.rotation_degrees.x = -10.0 - 70.0 * maxf(Game.sun_height(), 0.0)
 	sun.rotation_degrees.y = 30.0 + Game.time_of_day * 360.0
 	if water.visible:
-		# El agua sube entre el 60 % y el 100 % del índice.
-		var w := clampf((Game.terraform_index() - 60.0) / 40.0, 0.0, 1.0)
-		water.position.y = lerpf(-HEIGHT, -HEIGHT * 0.2, w)
+		_water_level = move_toward(_water_level, _target_water_level(), WATER_SPEED * delta)
+		water.position.y = _water_level
+		_update_melting()
+
+
+## Progreso del Deshielo según el índice: 0 al empezar, 1 en el índice dado.
+func _thaw(end: float) -> float:
+	var start := float(Game.STAGES[2]["threshold"])
+	return clampf((Game.terraform_index() - start) / (end - start), 0.0, 1.0)
+
+
+func _target_water_level() -> float:
+	return lerpf(WATER_LOW, WATER_HIGH, _thaw(100.0))
+
+
+## Metros de agua sobre el punto, o 0 si no hay agua encima.
+func water_depth(pos: Vector3) -> float:
+	if not water.visible:
+		return 0.0
+	return maxf(0.0, water.position.y - pos.y)
+
+
+## Encoge los bloques de hielo según avanza el Deshielo; los que quedan bajo
+## el agua o terminan de fundirse desaparecen.
+func _update_melting() -> void:
+	var melt := _thaw(MELT_END)
+	for node in ice_nodes:
+		var f := clampf((melt - float(_melt_start[node])) / MELT_TIME, 0.0, 1.0)
+		if node.position.y < water.position.y - 0.1:
+			f = 1.0
+		node.set_melt(f)
 
 
 ## 1 cuando el sol está en el horizonte (amanecer y atardecer), 0 lejos de él.
@@ -267,14 +311,25 @@ func _build_water() -> void:
 	plane.size = Vector2(WORLD_SIZE, WORLD_SIZE)
 	water.mesh = plane
 	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(0.15, 0.4, 0.7, 0.8)
+	material.albedo_color = Color(0.1, 0.32, 0.6, 0.82)
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	material.roughness = 0.1
 	material.metallic_specular = 1.0
 	water.material_override = material
-	water.position.y = -HEIGHT
+	water.position.y = WATER_LOW
 	water.visible = false
 	add_child(water)
+	# Volumen bajo la superficie: lo que el rayo de la herramienta toca para
+	# recoger agua. Es un Area3D, así que no frena al jugador.
+	water_area = WaterBody.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(WORLD_SIZE, 10.0, WORLD_SIZE)
+	var collision := CollisionShape3D.new()
+	collision.shape = box
+	collision.position.y = -5.0
+	water_area.add_child(collision)
+	water_area.monitoring = false
+	water.add_child(water_area)
 
 	plants = Node3D.new()
 	plants.visible = false
@@ -304,6 +359,22 @@ func _spawn_resources() -> void:
 			node.rotation.y = rng.randf_range(0.0, TAU)
 			node.scale = Vector3.ONE * RESOURCE_SCALE
 			add_child(node)
+			if type == "hielo":
+				ice_nodes.append(node)
+	_assign_melt_order()
+
+
+## Los bloques más bajos se funden antes; la parte más alta no se funde nunca
+## para que siga habiendo hielo en las cumbres.
+func _assign_melt_order() -> void:
+	var sorted := ice_nodes.duplicate()
+	sorted.sort_custom(func(a, b): return a.position.y < b.position.y)
+	var melting := int(sorted.size() * (1.0 - ICE_KEPT))
+	for i in sorted.size():
+		var start := INF
+		if i < melting:
+			start = (1.0 - MELT_TIME) * i / maxf(1.0, melting - 1)
+		_melt_start[sorted[i]] = start
 
 
 func _spawn_player() -> void:
@@ -458,10 +529,28 @@ func _update_shelter() -> void:
 
 func _on_stage_changed(stage: int) -> void:
 	if stage >= 2:
-		water.visible = true
+		if not water.visible:
+			# Al cargar una partida el agua ya está a su nivel.
+			_water_level = _target_water_level()
+			water.position.y = _water_level
+			water.visible = true
+			_update_melting()
+		if not _deshielo_explained and Game.biomass <= 0.0:
+			_deshielo_explained = true
+			_explain_deshielo()
 	if stage >= 3 and plants.get_child_count() == 0:
 		_spawn_plants()
 		plants.visible = true
+
+
+## Mensajes seguidos al llegar al Deshielo, para que se entienda qué cambia.
+func _explain_deshielo() -> void:
+	for text in [
+			"El hielo empieza a derretirse y se forman lagos en los valles.",
+			"Recoge agua en la orilla y craftea semillas de musgo (Tab).",
+			"Planta musgo fuera y monta bancales en la base: la biomasa sube el índice."]:
+		await get_tree().create_timer(Hud.MESSAGE_TIME + 0.5).timeout
+		Game.message.emit(text)
 
 
 func _spawn_plants() -> void:

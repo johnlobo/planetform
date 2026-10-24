@@ -9,6 +9,8 @@ const SPEED := 6.0
 const JUMP_VELOCITY := 4.5
 const MOUSE_SENSITIVITY := 0.0025
 const REACH := 4.0
+const WADE_DEPTH := 0.4 # metros de agua a partir de los que se anda más despacio
+const WADE_FACTOR := 0.55
 const STEP_DISTANCE := 2.2 # metros entre pisadas
 const LANDING_MIN_AIR_TIME := 0.25 # segundos en el aire para que suene el aterrizaje
 
@@ -44,6 +46,9 @@ func _ready() -> void:
 	ray = RayCast3D.new()
 	ray.target_position = Vector3(0, 0, -REACH)
 	ray.add_exception(self)
+	# También ve el musgo (capa 2) y la superficie del agua (un Area3D).
+	ray.collision_mask = 1 | 2
+	ray.collide_with_areas = true
 	camera.add_child(ray)
 
 	camera.near = 0.02 # la herramienta va muy cerca de la cámara
@@ -102,9 +107,11 @@ func _physics_process(delta: float) -> void:
 			velocity.y = JUMP_VELOCITY
 
 	var direction := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
+	# Con el agua por encima de las rodillas se anda más despacio.
+	var speed := SPEED * (WADE_FACTOR if world.water_depth(global_position) > WADE_DEPTH else 1.0)
 	if direction != Vector3.ZERO:
-		velocity.x = direction.x * SPEED
-		velocity.z = direction.z * SPEED
+		velocity.x = direction.x * speed
+		velocity.z = direction.z * speed
 	else:
 		velocity.x = move_toward(velocity.x, 0, SPEED)
 		velocity.z = move_toward(velocity.z, 0, SPEED)
