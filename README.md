@@ -48,6 +48,21 @@ Todas las cantidades son provisionales y están en `scripts/game_state.gd`.
 2. **Proyecto → Exportar → Añadir… → Web**, y exporta a una carpeta `export/web/` con `index.html`.
 3. Comprime esa carpeta en un .zip y súbela a itch.io como juego HTML.
 
+## Versiones descargables
+
+GitHub Actions (`.github/workflows/compilar.yml`) exporta el juego para navegador, Windows y macOS con Godot 4.7.2:
+
+- En cada pull request las tres versiones quedan como artefacto `PlanetForm` en la ejecución del workflow.
+- Al subir una etiqueta que empiece por `v` se publican en una Release de GitHub:
+
+  ```
+  git tag v0.1
+  git push origin v0.1
+  ```
+
+La versión de macOS no está firmada con una cuenta de desarrollador de Apple, así que macOS la bloquea la primera vez.
+Para abrirla: intenta abrirla una vez, ve a **Ajustes del Sistema → Privacidad y seguridad** y pulsa **Abrir igualmente**.
+
 ## Estructura
 
 ```
