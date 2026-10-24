@@ -1,5 +1,9 @@
 extends CharacterBody3D
-## Jugador en primera persona: movimiento, cámara y recolección.
+## Jugador en primera persona: movimiento, cámara y la herramienta de mano
+## con sus tres modos (recoger, construir y desmontar).
+
+const Tool := preload("res://scripts/tool.gd")
+const Machine := preload("res://scripts/machine.gd")
 
 const SPEED := 6.0
 const JUMP_VELOCITY := 4.5
@@ -12,6 +16,11 @@ var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var camera: Camera3D
 var ray: RayCast3D
 var spawn_point := Vector3.ZERO
+var world: Node3D # el nodo main: sabe desmontar lo construido
+var tool: Node3D
+# Lo que se ilumina en rojo al apuntarlo en modo desmontar.
+var _highlighted: Node3D
+var _highlight := _highlight_material()
 var _step_travel := 0.0
 var _air_time := 0.0
 
@@ -37,6 +46,11 @@ func _ready() -> void:
 	ray.add_exception(self)
 	camera.add_child(ray)
 
+	camera.near = 0.02 # la herramienta va muy cerca de la cámara
+	tool = Tool.new()
+	tool.player = self
+	camera.add_child(tool)
+
 	spawn_point = global_position
 	Game.player_respawned.connect(_on_respawned)
 
@@ -55,6 +69,22 @@ func _unhandled_input(event: InputEvent) -> void:
 		else:
 			# En el navegador el ratón solo se puede capturar tras un clic.
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	elif event is InputEventMouseButton and event.pressed and captured \
+			and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+		# Con la rueda se pasa de un modo al siguiente (al colocar, gira la pieza).
+		var step := -1 if event.button_index == MOUSE_BUTTON_WHEEL_UP else 1
+		var i := Game.TOOL_MODES.find(Game.tool_mode)
+		_set_mode(Game.TOOL_MODES[posmod(i + step, Game.TOOL_MODES.size())], false)
+	elif event.is_action_pressed("tool_recoger"):
+		_set_mode("recoger", false)
+	elif event.is_action_pressed("tool_construir"):
+		_set_mode("construir", true)
+	elif event.is_action_pressed("tool_desmontar"):
+		_set_mode("desmontar", false)
+	elif event.is_action_pressed("interact"):
+		var target = ray.get_collider() if ray.is_colliding() else null
+		if target is Machine and target.is_storage():
+			Game.locker_requested.emit(target)
 	elif event.is_action_pressed("use_bottle"):
 		Game.use_bottle()
 	elif event.is_action_pressed("release_mouse"):
@@ -107,26 +137,92 @@ func _update_steps(delta: float, was_on_floor: bool) -> void:
 		Sfx.play("paso", 0.15)
 
 
+## Cambia el modo de la herramienta. Con open_menu, al pasar a construir se
+## abre directamente el menú de construcción.
+func _set_mode(mode: String, open_menu: bool) -> void:
+	if mode != Game.tool_mode:
+		Sfx.play("clic")
+	Game.set_tool_mode(mode)
+	if mode == "construir" and open_menu and not Game.placing:
+		Game.build_menu_requested.emit()
+
+
+func _target() -> Object:
+	return ray.get_collider() if ray.is_colliding() else null
+
+
 func _update_hint() -> void:
+	var target := _target()
+	var info := {}
+	if Game.tool_mode == "desmontar" and not Game.placing and target:
+		info = world.dismantle_info(target)
+	_set_highlight(info.get("node"))
 	if Game.placing:
 		return # el modo de colocación escribe su propia ayuda
 	Game.hint = ""
-	if ray.is_colliding():
-		var target = ray.get_collider()
-		if target and target.has_method("get_hint"):
-			Game.hint = target.get_hint()
+	match Game.tool_mode:
+		"recoger":
+			if target and target.has_method("get_hint"):
+				Game.hint = target.get_hint()
+		"construir":
+			Game.hint = "Clic para elegir qué construir"
+		"desmontar":
+			if info.is_empty():
+				return
+			if info.has("reason"):
+				Game.hint = "%s · %s" % [info["name"], info["reason"]]
+			else:
+				Game.hint = "Desmontar %s · clic · devuelve %s" % [info["name"], Game.cost_text(info["refund"])]
 
 
 func _interact() -> void:
-	if not ray.is_colliding():
+	var target := _target()
+	match Game.tool_mode:
+		"construir":
+			Game.build_menu_requested.emit()
+		"desmontar":
+			if target == null:
+				return
+			var point := ray.get_collision_point()
+			if world.dismantle(target):
+				_highlighted = null
+				Game.tool_used.emit(point)
+		"recoger":
+			if target is Machine and target.is_storage():
+				Game.locker_requested.emit(target)
+			elif target and target.has_method("harvest"):
+				var amount: int = target.harvest(2 if Game.has_drill else 1)
+				if amount > 0:
+					Sfx.play("recoger", 0.05)
+					Game.tool_used.emit(ray.get_collision_point())
+					Game.add_item(target.resource_type, amount)
+					Game.message.emit("+%d %s" % [amount, Game.RESOURCE_NAMES[target.resource_type]])
+
+
+## Tiñe de rojo lo que se va a desmontar.
+func _set_highlight(node: Node3D) -> void:
+	if node == _highlighted:
 		return
-	var target = ray.get_collider()
-	if target and target.has_method("harvest"):
-		var amount: int = target.harvest(2 if Game.has_drill else 1)
-		if amount > 0:
-			Sfx.play("recoger", 0.05)
-			Game.add_item(target.resource_type, amount)
-			Game.message.emit("+%d %s" % [amount, Game.RESOURCE_NAMES[target.resource_type]])
+	if is_instance_valid(_highlighted):
+		_overlay(_highlighted, null)
+	_highlighted = node
+	if node:
+		_overlay(node, _highlight)
+
+
+static func _overlay(node: Node, material: Material) -> void:
+	for child in node.get_children():
+		if child is MeshInstance3D:
+			child.material_overlay = material
+		_overlay(child, material)
+
+
+static func _highlight_material() -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(1.0, 0.15, 0.1, 0.35)
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	return material
 
 
 func _on_respawned() -> void:

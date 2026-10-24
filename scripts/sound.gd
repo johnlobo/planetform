@@ -34,6 +34,7 @@ func _ready() -> void:
 		"recoger": _tones([660.0, 990.0], 0.07, 0.35),
 		"craftear": _tones([523.0, 659.0, 784.0], 0.08, 0.3),
 		"colocar": _thud(),
+		"desmontar": _sweep(700.0, 220.0, 0.25, 0.3),
 		"clic": _tones([880.0], 0.03, 0.2),
 		"alarma": _tones([440.0, 0.0, 440.0], 0.12, 0.3),
 		"muerte": _sweep(440.0, 110.0, 1.2, 0.4),

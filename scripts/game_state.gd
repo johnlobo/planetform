@@ -9,6 +9,10 @@ signal message(text: String)
 signal place_requested(kind: String)
 signal player_died(cause: String)
 signal player_respawned
+signal tool_changed(mode: String)
+signal tool_used(point: Vector3)
+signal build_menu_requested
+signal locker_requested(locker: Node3D)
 
 const RESOURCE_NAMES := {
 	"hierro": "Hierro",
@@ -34,6 +38,7 @@ const RECIPES := {
 	"modulo": {"name": "Módulo de hábitat", "cost": {"hierro": 6, "silicio": 2}, "kind": "module", "stage": 0},
 	"puerta": {"name": "Puerta", "cost": {"hierro": 2}, "kind": "fitting", "stage": 0},
 	"ventana": {"name": "Ventana", "cost": {"hierro": 1, "silicio": 2}, "kind": "fitting", "stage": 0},
+	"taquilla": {"name": "Taquilla", "cost": {"hierro": 3}, "kind": "building", "stage": 0},
 }
 
 # Recetas que se colocan en el mundo en vez de ir al inventario.
@@ -49,7 +54,13 @@ const MACHINES := {
 	"calentador": {"energy": -1, "oxygen": 0, "temperature": 1},
 	"generador_avanzado": {"energy": -2, "oxygen": 3, "temperature": 0},
 	"calentador_avanzado": {"energy": -2, "oxygen": 0, "temperature": 3},
+	# Guarda recursos: "storage" es cuántas unidades caben.
+	"taquilla": {"energy": 0, "oxygen": 0, "temperature": 0, "storage": 50},
 }
+
+# Modos de la herramienta de mano, en el orden de las teclas 1, 2 y 3.
+const TOOL_MODES := ["recoger", "construir", "desmontar"]
+const TOOL_NAMES := {"recoger": "Recoger", "construir": "Construir", "desmontar": "Desmontar"}
 
 const STAGES := [
 	{"name": "Roca muerta", "threshold": 0.0},
@@ -103,6 +114,7 @@ var ui_open := false
 # true mientras el jugador elige dónde colocar una construcción.
 var placing := false
 var hint := ""
+var tool_mode := "recoger"
 # Construcciones colocadas: [{"kind", "x", "y", "z", "rot"}], para el guardado.
 var machines: Array = []
 # Módulos de la base: [{"x", "y", "z", "rot", "sides"}].
@@ -351,9 +363,48 @@ func use_bottle() -> void:
 	inventory_changed.emit()
 
 
-func register_machine(kind: String, pos: Vector3, rot: float) -> void:
-	machines.append({"kind": kind, "x": pos.x, "y": pos.y, "z": pos.z, "rot": rot})
+## Apunta una construcción para el guardado y devuelve su entrada.
+func register_machine(kind: String, pos: Vector3, rot: float) -> Dictionary:
+	var data := {"kind": kind, "x": pos.x, "y": pos.y, "z": pos.z, "rot": rot}
+	machines.append(data)
 	_count_machine(kind)
+	return data
+
+
+## Quita una construcción desmontada. Se busca la entrada misma y no una
+## igual, por si hubiera dos con los mismos datos.
+func unregister_machine(data: Dictionary) -> void:
+	for i in machines.size():
+		if is_same(machines[i], data):
+			machines.remove_at(i)
+			break
+	var kind := String(data["kind"])
+	machine_counts[kind] = maxi(0, int(machine_counts.get(kind, 0)) - 1)
+	if machine_counts[kind] == 0:
+		machine_counts.erase(kind)
+	planet_changed.emit()
+
+
+## Devuelve al inventario los materiales de lo que se desmonta.
+func refund(cost: Dictionary) -> void:
+	for res in cost:
+		inventory[res] = int(inventory.get(res, 0)) + int(cost[res])
+	inventory_changed.emit()
+
+
+## "2 hierro + 1 silicio"
+func cost_text(cost: Dictionary) -> String:
+	var parts := PackedStringArray()
+	for res in cost:
+		parts.append("%d %s" % [cost[res], String(RESOURCE_NAMES[res]).to_lower()])
+	return " + ".join(parts)
+
+
+func set_tool_mode(mode: String) -> void:
+	if mode == tool_mode:
+		return
+	tool_mode = mode
+	tool_changed.emit(mode)
 
 
 func _count_machine(kind: String) -> void:
@@ -502,6 +553,7 @@ func _reset_state() -> void:
 	placing = false
 	machines = []
 	modules = []
+	tool_mode = "recoger"
 	sheltered = false
 	player_position = null
 	_autosave_timer = 0.0
@@ -518,6 +570,10 @@ func _setup_input() -> void:
 	_add_key("release_mouse", [KEY_ESCAPE])
 	_add_key("pause", [KEY_H])
 	_add_key("rotate_building", [KEY_R])
+	_add_key("interact", [KEY_E])
+	_add_key("tool_recoger", [KEY_1])
+	_add_key("tool_construir", [KEY_2])
+	_add_key("tool_desmontar", [KEY_3])
 
 
 func _add_key(action: String, keys: Array) -> void:

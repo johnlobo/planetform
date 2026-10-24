@@ -20,8 +20,10 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 | WASD / flechas | Moverse |
 | Ratón | Mirar |
 | Espacio | Saltar |
-| Clic izquierdo | Recoger el recurso que miras (y capturar el ratón) |
-| Tab o C | Abrir y cerrar el menú de crafteo |
+| Clic izquierdo | Usar la herramienta (y capturar el ratón) |
+| 1 / 2 / 3 o rueda del ratón | Cambiar el modo de la herramienta: recoger, construir o desmontar |
+| Tab o C | Abrir y cerrar el menú de crafteo (herramientas y botellas) |
+| E | Abrir la taquilla que miras |
 | Q | Usar una botella de oxígeno |
 | H | Abrir y cerrar el menú de pausa |
 | Esc | Cerrar el menú de crafteo o soltar el ratón |
@@ -29,6 +31,13 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 | Clic derecho o Esc | Cancelar la colocación |
 
 ## Cómo se juega
+
+- La **herramienta** de la mano tiene tres modos y su cabezal cambia con cada uno:
+  - **Recoger** (taladro naranja): clic en un recurso para recogerlo o en una taquilla para abrirla.
+  - **Construir** (emisor azul): abre el menú de construcción, con un icono por pieza. Al elegir una se coloca con la silueta verde o roja.
+  - **Desmontar** (pinzas rojas): lo que apuntas se tiñe de rojo; con un clic se quita y te devuelve todos sus materiales.
+    Una pared con puerta o ventana quita solo esa pieza; un módulo hay que vaciarlo antes de desmontarlo.
+- Las **taquillas** guardan hasta 50 recursos. Al desmontar una, lo guardado vuelve a la mochila.
 
 - Recoge **hierro** (rocas marrones), **silicio** (cristales azules), **hielo** (placas blancas) y **cobre** (rocas verdes).
 - Craftea **paneles solares** para tener energía (solo de día) y **generadores de oxígeno** para subir el oxígeno del planeta.
