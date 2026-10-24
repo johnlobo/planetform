@@ -146,6 +146,8 @@ func _update_ghost() -> void:
 ## Coloca la silueta de una máquina y devuelve por qué no cabe, o "".
 func _place_machine(point: Vector3, hit: Dictionary) -> String:
 	var on_floor: bool = hit and hit["collider"].is_in_group("base_floor")
+	if on_floor and _kind == "musgo":
+		return "el musgo se planta fuera, en el suelo"
 	if not on_floor:
 		point.y = world.surface_height(point.x, point.z)
 	var rot := player.rotation.y + _rotation
@@ -319,7 +321,7 @@ func _confirm() -> void:
 		"building":
 			var pos := _ghost.global_position
 			var rot := _ghost.rotation.y
-			world.spawn_machine(Game.register_machine(kind, pos, rot))
+			world.spawn_machine(Game.register_machine(kind, pos, rot)).sprout()
 		"module":
 			var pos := _ghost.global_position
 			var data := {"x": pos.x, "y": pos.y, "z": pos.z, "rot": _ghost.rotation.y, "sides": ["pared", "pared", "pared", "pared"]}
