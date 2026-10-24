@@ -2,6 +2,7 @@ extends CanvasLayer
 ## Interfaz: inventario, estado del planeta, oxígeno del jugador y menú de crafteo.
 
 const MESSAGE_TIME := 4.0
+const DEATH_FADE_TIME := 3.0
 
 var inventory_label: Label
 var planet_label: Label
@@ -9,12 +10,19 @@ var oxygen_bar: ProgressBar
 var warmth_bar: ProgressBar
 var hint_label: Label
 var message_label: Label
+var pause_label: Label
 var craft_panel: PanelContainer
 var craft_list: VBoxContainer
+var death_overlay: ColorRect
+var death_label: Label
 var message_timer := 0.0
+# true cuando la pantalla de game over espera a que el jugador pulse Enter.
+var _waiting_respawn := false
 
 
 func _ready() -> void:
+	# El HUD sigue activo con el juego en pausa para poder reanudarlo con H.
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	inventory_label = _label(Control.PRESET_TOP_LEFT, Vector2(16, 16))
 
 	planet_label = _label(Control.PRESET_TOP_RIGHT, Vector2(-16, 16))
@@ -32,12 +40,26 @@ func _ready() -> void:
 	message_label.custom_minimum_size.x = 480
 	message_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
-	var help := _label(Control.PRESET_BOTTOM_LEFT, Vector2(16, -40))
-	help.text = "WASD mover · Espacio saltar · Clic recoger · Tab craftear · Q usar botella · F9 nueva partida · Esc soltar ratón"
+	# Dos líneas, abajo a la izquierda, para no llegar a las barras de la derecha.
+	var help := _label(Control.PRESET_BOTTOM_LEFT, Vector2.ZERO)
+	help.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	help.offset_left = 16
+	help.offset_bottom = -16
+	help.text = "WASD mover · Espacio saltar · Clic recoger · Tab craftear · Q usar botella\nH pausa · F9 nueva partida · Esc soltar ratón"
 
+	pause_label = _label(Control.PRESET_CENTER, Vector2(-160, -80))
+	pause_label.custom_minimum_size.x = 320
+	pause_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pause_label.text = "PAUSA\n(H para continuar)"
+	pause_label.visible = false
+
+	# Barras abajo a la derecha; el contenedor crece hacia arriba y a la izquierda.
 	var oxygen_box := VBoxContainer.new()
-	oxygen_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	oxygen_box.position += Vector2(-150, -120)
+	oxygen_box.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	oxygen_box.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	oxygen_box.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	oxygen_box.offset_right = -16
+	oxygen_box.offset_bottom = -16
 	oxygen_box.custom_minimum_size = Vector2(300, 0)
 	oxygen_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var oxygen_title := Label.new()
@@ -58,18 +80,38 @@ func _ready() -> void:
 	add_child(oxygen_box)
 
 	_build_craft_panel()
+	_build_death_screen()
 
 	Game.inventory_changed.connect(_refresh_inventory)
 	Game.message.connect(_show_message)
+	Game.player_died.connect(_on_player_died)
 	_refresh_inventory()
 
 
 func _input(event: InputEvent) -> void:
 	# Se usa _input y no _unhandled_input porque los botones del menú
 	# consumen la tecla Tab para mover el foco.
-	if event.is_action_pressed("craft"):
+	if Game.dead:
+		# Durante la muerte solo cuenta Enter, y solo cuando ya sale el game over.
+		if _waiting_respawn and event.is_action_pressed("ui_accept"):
+			_respawn()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("pause"):
+		_toggle_pause()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("craft") and not get_tree().paused:
 		_toggle_craft()
 		get_viewport().set_input_as_handled()
+
+
+func _toggle_pause() -> void:
+	var paused := not get_tree().paused
+	if paused and craft_panel.visible:
+		_toggle_craft()
+	get_tree().paused = paused
+	pause_label.visible = paused
+	# Al reanudar, el ratón se vuelve a capturar con un clic, como al empezar.
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
 func _process(delta: float) -> void:
@@ -116,6 +158,51 @@ func _build_craft_panel() -> void:
 	craft_list = VBoxContainer.new()
 	box.add_child(craft_list)
 	add_child(craft_panel)
+
+
+func _build_death_screen() -> void:
+	death_overlay = ColorRect.new()
+	death_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	death_overlay.color = Color(0, 0, 0, 0)
+	death_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	death_overlay.visible = false
+	add_child(death_overlay)
+	death_label = Label.new()
+	death_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	death_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	death_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	death_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	death_label.add_theme_font_size_override("font_size", 32)
+	death_label.visible = false
+	death_overlay.add_child(death_label)
+
+
+## Fundido a negro de DEATH_FADE_TIME segundos y, después, el game over.
+func _on_player_died(cause: String) -> void:
+	if craft_panel.visible:
+		_toggle_craft()
+	get_tree().paused = true
+	pause_label.visible = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	death_label.text = "GAME OVER\n\n%s\n\nPulsa Enter para volver a la base" % cause
+	death_overlay.color.a = 0.0
+	death_overlay.visible = true
+	var tween := create_tween()
+	tween.tween_property(death_overlay, "color:a", 1.0, DEATH_FADE_TIME)
+	tween.tween_callback(_show_game_over)
+
+
+func _show_game_over() -> void:
+	death_label.visible = true
+	_waiting_respawn = true
+
+
+func _respawn() -> void:
+	_waiting_respawn = false
+	death_label.visible = false
+	death_overlay.visible = false
+	get_tree().paused = false
+	Game.respawn()
 
 
 func _toggle_craft() -> void:

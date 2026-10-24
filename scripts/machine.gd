@@ -92,6 +92,8 @@ func get_hint() -> String:
 	var recipe_name: String = Game.RECIPES[kind]["name"]
 	var energy := int(Game.MACHINES[kind]["energy"])
 	if energy > 0:
+		if Game.MACHINES[kind].get("solar", false) and Game.is_night():
+			return "%s · de noche no da energía" % recipe_name
 		return "%s · da %d de energía" % [recipe_name, energy]
 	if Game.energy_ratio() <= 0.0:
 		return "%s · sin energía" % recipe_name

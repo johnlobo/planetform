@@ -34,7 +34,7 @@ func _ready() -> void:
 	camera.add_child(ray)
 
 	spawn_point = global_position
-	Game.player_suffocated.connect(_on_suffocated)
+	Game.player_respawned.connect(_on_respawned)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -104,6 +104,6 @@ func _interact() -> void:
 			Game.message.emit("+%d %s" % [amount, Game.RESOURCE_NAMES[target.resource_type]])
 
 
-func _on_suffocated() -> void:
+func _on_respawned() -> void:
 	global_position = spawn_point
 	velocity = Vector3.ZERO
