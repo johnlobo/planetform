@@ -33,12 +33,14 @@ const RECIPES := {
 	"panel": {"name": "Panel solar", "cost": {"hierro": 2, "silicio": 2}, "kind": "building", "stage": 0},
 	"generador": {"name": "Generador de oxígeno", "cost": {"hierro": 3, "hielo": 2}, "kind": "building", "stage": 0},
 	"calentador": {"name": "Calentador", "cost": {"hierro": 4, "silicio": 1}, "kind": "building", "stage": 1},
+	"perforadora": {"name": "Perforadora de gases", "cost": {"hierro": 3, "silicio": 1, "hielo": 1}, "kind": "building", "stage": 0},
 	"botella": {"name": "Botella de oxígeno", "cost": {"hielo": 1}, "kind": "consumable", "stage": 0},
 	# Deshielo
 	"tanque": {"name": "Tanque de oxígeno", "cost": {"hierro": 2, "cobre": 2}, "kind": "tool", "stage": 2},
 	"turbina": {"name": "Turbina eólica", "cost": {"hierro": 3, "cobre": 2}, "kind": "building", "stage": 2},
 	"generador_avanzado": {"name": "Generador avanzado", "cost": {"hierro": 4, "cobre": 3, "hielo": 3}, "kind": "building", "stage": 2},
 	"calentador_avanzado": {"name": "Calentador avanzado", "cost": {"hierro": 4, "cobre": 3, "silicio": 2}, "kind": "building", "stage": 2},
+	"compresor": {"name": "Compresor atmosférico", "cost": {"hierro": 4, "cobre": 3, "silicio": 2}, "kind": "building", "stage": 2},
 	"semillas": {"name": "Semillas de musgo", "cost": {"agua": 1, "silicio": 1}, "kind": "consumable", "stage": 2},
 	"guiso": {"name": "Guiso", "cost": {"verdura": 3, "agua": 1}, "kind": "consumable", "stage": 2},
 	"musgo": {"name": "Musgo", "cost": {"semillas": 1}, "kind": "building", "stage": 2},
@@ -49,14 +51,21 @@ const RECIPES := {
 	"puerta": {"name": "Puerta", "cost": {"hierro": 2}, "kind": "fitting", "stage": 0},
 	"ventana": {"name": "Ventana", "cost": {"hierro": 1, "silicio": 2}, "kind": "fitting", "stage": 0},
 	"taquilla": {"name": "Taquilla", "cost": {"hierro": 3}, "kind": "building", "stage": 0},
+	# Pantallas que muestran cómo va el planeta.
+	"pantalla": {"name": "Pantalla de terraformación", "cost": {"hierro": 2, "silicio": 2}, "kind": "building", "stage": 0},
+	"monitor_oxigeno": {"name": "Monitor de oxígeno", "cost": {"hierro": 1, "silicio": 1}, "kind": "building", "stage": 0},
+	"monitor_calor": {"name": "Monitor de calor", "cost": {"hierro": 1, "silicio": 1}, "kind": "building", "stage": 0},
+	"monitor_presion": {"name": "Monitor de presión", "cost": {"hierro": 1, "silicio": 1}, "kind": "building", "stage": 0},
+	"monitor_biomasa": {"name": "Monitor de biomasa", "cost": {"hierro": 1, "silicio": 1}, "kind": "building", "stage": 0},
 }
 
 # Recetas que se colocan en el mundo en vez de ir al inventario.
 const PLACEABLE_KINDS := ["building", "module", "fitting"]
 
 # Efecto de cada construcción: energía que da (+) o gasta (-) y cuánto sube
-# cada métrica del planeta, en múltiplos de MACHINE_RATE. "solar" = no da
-# energía de noche. Lo que no gasta energía (el musgo) funciona siempre.
+# cada métrica del planeta, en múltiplos de MACHINE_RATE (la que no se pone
+# es 0). "solar" = no da energía de noche. Lo que no gasta energía (el musgo)
+# funciona siempre.
 const MACHINES := {
 	"panel": {"energy": 1, "oxygen": 0, "temperature": 0, "biomass": 0, "solar": true},
 	"turbina": {"energy": 3, "oxygen": 0, "temperature": 0, "biomass": 0},
@@ -64,6 +73,9 @@ const MACHINES := {
 	"calentador": {"energy": -1, "oxygen": 0, "temperature": 1, "biomass": 0},
 	"generador_avanzado": {"energy": -2, "oxygen": 3, "temperature": 0, "biomass": 0},
 	"calentador_avanzado": {"energy": -2, "oxygen": 0, "temperature": 3, "biomass": 0},
+	# Presión: la perforadora saca gases del subsuelo; el compresor, el triple.
+	"perforadora": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 0, "pressure": 1},
+	"compresor": {"energy": -2, "oxygen": 0, "temperature": 0, "biomass": 0, "pressure": 3},
 	# Guarda recursos: "storage" es cuántas unidades caben.
 	"taquilla": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "storage": 50},
 	# Deshielo: el musgo crece solo; el bancal, más rápido pero con energía.
@@ -73,7 +85,18 @@ const MACHINES := {
 	"bomba": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 0, "storage": 20, "produces": "agua", "produce_time": 6.0},
 	# El bancal, además de subir la biomasa, da verduras para comer.
 	"cultivo": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 3, "storage": 12, "produces": "verdura", "produce_time": 20.0},
+	# Pantallas: no gastan energía. "display" es lo que enseñan: una métrica
+	# o "index" para el índice con todas las métricas.
+	"pantalla": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "display": "index"},
+	"monitor_oxigeno": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "display": "oxygen"},
+	"monitor_calor": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "display": "temperature"},
+	"monitor_presion": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "display": "pressure"},
+	"monitor_biomasa": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "display": "biomass"},
 }
+
+# Métricas del planeta, en el orden en que salen en la interfaz.
+const METRICS := ["oxygen", "temperature", "pressure", "biomass"]
+const METRIC_NAMES := {"oxygen": "Oxígeno", "temperature": "Temperatura", "pressure": "Presión", "biomass": "Biomasa"}
 
 # Comida: cuánto quita el hambre cada cosa. Al comer (F) se toma la primera
 # de esta lista que haya en la mochila.
@@ -106,7 +129,7 @@ const STARVE_TIME := 60.0
 const START_RATIONS := 5
 # Peso de cada métrica en el índice de terraformación. Sin biomasa se llega
 # como mucho al 80 %: para que el planeta sea habitable hacen falta plantas.
-const INDEX_WEIGHTS := {"oxygen": 0.4, "temperature": 0.4, "biomass": 0.2}
+const INDEX_WEIGHTS := {"oxygen": 0.3, "temperature": 0.3, "pressure": 0.2, "biomass": 0.2}
 # Día y noche
 const DAY_LENGTH := 240.0 # segundos por día completo
 const START_TIME := 0.3 # 0 = medianoche, 0.5 = mediodía
@@ -130,6 +153,7 @@ var machine_counts := {}
 var oxygen := 0.0
 var temperature := 0.0
 var biomass := 0.0
+var pressure := 0.0
 var player_oxygen := PLAYER_O2_MAX
 var stage := 0
 var finished := false
@@ -185,9 +209,8 @@ func _process(delta: float) -> void:
 	if finished or dead:
 		return
 	if not machine_counts.is_empty():
-		oxygen = minf(100.0, oxygen + _rate("oxygen") * delta)
-		temperature = minf(100.0, temperature + _rate("temperature") * delta)
-		biomass = minf(100.0, biomass + _rate("biomass") * delta)
+		for metric in METRICS:
+			set(metric, minf(100.0, float(get(metric)) + metric_rate(metric) * delta))
 		planet_changed.emit()
 		_update_stage()
 
@@ -331,8 +354,10 @@ func _near_heater() -> bool:
 
 
 func terraform_index() -> float:
-	return oxygen * INDEX_WEIGHTS["oxygen"] + temperature * INDEX_WEIGHTS["temperature"] \
-			+ biomass * INDEX_WEIGHTS["biomass"]
+	var index := 0.0
+	for metric in METRICS:
+		index += float(get(metric)) * INDEX_WEIGHTS[metric]
+	return index
 
 
 func player_o2_max() -> float:
@@ -365,11 +390,11 @@ func energy_ratio() -> float:
 
 ## Puntos por segundo que suben la métrica. Las máquinas que gastan energía
 ## van al ritmo de la energía que reciben; las que no la gastan, siempre.
-func _rate(metric: String) -> float:
+func metric_rate(metric: String) -> float:
 	var ratio := energy_ratio()
 	var total := 0.0
 	for kind in machine_counts:
-		var amount := float(MACHINES[kind][metric]) * int(machine_counts[kind])
+		var amount := float(MACHINES[kind].get(metric, 0)) * int(machine_counts[kind])
 		if int(MACHINES[kind]["energy"]) < 0:
 			amount *= ratio
 		total += amount
@@ -543,6 +568,7 @@ func save_game() -> void:
 		"oxygen": oxygen,
 		"temperature": temperature,
 		"biomass": biomass,
+		"pressure": pressure,
 		"player_oxygen": player_oxygen,
 		"stage": stage,
 		"time_of_day": time_of_day,
@@ -587,6 +613,9 @@ func load_game() -> bool:
 	oxygen = float(data.get("oxygen", 0.0))
 	temperature = float(data.get("temperature", 0.0))
 	biomass = float(data.get("biomass", 0.0))
+	# Una partida de antes de la presión empieza con la que deja el índice
+	# igual que antes (pesaban 40 % el oxígeno y la temperatura).
+	pressure = float(data.get("pressure", minf(100.0, (oxygen + temperature) / 2.0)))
 	player_oxygen = float(data.get("player_oxygen", PLAYER_O2_MAX))
 	stage = int(data.get("stage", 0))
 	time_of_day = float(data.get("time_of_day", START_TIME))
@@ -634,6 +663,7 @@ func _reset_state() -> void:
 	oxygen = 0.0
 	temperature = 0.0
 	biomass = 0.0
+	pressure = 0.0
 	player_oxygen = PLAYER_O2_MAX
 	stage = 0
 	finished = false
