@@ -54,7 +54,11 @@ func set_melt(fraction: float) -> void:
 func _deplete() -> void:
 	visible = false
 	_shape.set_deferred("disabled", true)
-	await get_tree().create_timer(RESPAWN_TIME).timeout
+	# Con connect y no await: si el trozo del terreno se borra antes, no pasa nada.
+	get_tree().create_timer(RESPAWN_TIME).timeout.connect(_respawn)
+
+
+func _respawn() -> void:
 	if melted:
 		return
 	amount = MAX_AMOUNT
