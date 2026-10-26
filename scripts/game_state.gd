@@ -52,6 +52,10 @@ const RECIPES := {
 	"bomba": {"name": "Bomba de agua", "cost": {"hierro": 3, "cobre": 2}, "kind": "building", "stage": 2},
 	"cultivo": {"name": "Bancal de cultivo", "cost": {"hierro": 2, "agua": 3, "semillas": 2}, "kind": "building", "stage": 2},
 	"drones": {"name": "Estación de drones", "cost": {"hierro": 6, "cobre": 4, "silicio": 3}, "kind": "building", "stage": 2},
+	# Lluvias
+	"colector": {"name": "Colector de lluvia", "cost": {"hierro": 2, "silicio": 2}, "kind": "building", "stage": 3},
+	"arbol": {"name": "Plantón de árbol", "cost": {"semillas": 2, "agua": 2}, "kind": "building", "stage": 3},
+	"insectos": {"name": "Criadero de insectos", "cost": {"hierro": 3, "cobre": 2, "verdura": 2}, "kind": "building", "stage": 3},
 	# Base: módulos que encajan entre sí y piezas para sus paredes.
 	"modulo": {"name": "Módulo de hábitat", "cost": {"hierro": 6, "silicio": 2}, "kind": "module", "stage": 0},
 	"puerta": {"name": "Puerta", "cost": {"hierro": 2}, "kind": "fitting", "stage": 0},
@@ -85,7 +89,10 @@ const MACHINES := {
 	# Guarda recursos: "storage" es cuántas unidades caben.
 	"taquilla": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "storage": 50},
 	# Deshielo: el musgo crece solo; el bancal, más rápido pero con energía.
-	"musgo": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 1},
+	# "plant" = con lluvia sube la biomasa RAIN_PLANT_FACTOR veces más rápido.
+	# "outside" = solo se coloca fuera de la base. "grow_time" = segundos que
+	# tarda en crecer desde que se planta.
+	"musgo": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 1, "plant": true, "outside": true, "grow_time": 40.0},
 	# Saca agua del subsuelo y la guarda: una unidad de "produces" cada
 	# "produce_time" segundos con toda la energía, hasta llenar "storage".
 	"bomba": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 0, "storage": 20, "produces": "agua", "produce_time": 6.0},
@@ -102,6 +109,11 @@ const MACHINES := {
 	"cargador": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 0},
 	# Sus drones traen lo que recogen de los depósitos cercanos y lo guardan.
 	"drones": {"energy": -2, "oxygen": 0, "temperature": 0, "biomass": 0, "storage": 30, "gathers": true},
+	# Lluvias. El colector no gasta energía: solo recoge mientras llueve ("rain").
+	"colector": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "storage": 20, "produces": "agua", "produce_time": 5.0, "rain": true, "outside": true},
+	"arbol": {"energy": 0, "oxygen": 1, "temperature": 0, "biomass": 2, "plant": true, "outside": true, "grow_time": 90.0},
+	# Sus insectos polinizan los bancales a menos de POLLEN_RANGE metros.
+	"insectos": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 2, "pollinates": true},
 }
 
 # Métricas del planeta, en el orden en que salen en la interfaz.
@@ -120,6 +132,7 @@ const STAGES := [
 	{"name": "Roca muerta", "threshold": 0.0},
 	{"name": "Primera neblina", "threshold": 20.0},
 	{"name": "Deshielo", "threshold": 50.0},
+	{"name": "Lluvias", "threshold": 75.0},
 	{"name": "Habitable", "threshold": 100.0},
 ]
 
@@ -152,6 +165,17 @@ const SHELTER_O2_REFILL := 20.0 # oxígeno por segundo dentro de un módulo
 const LOW_O2_WARNING := 0.2 # fracción de la reserva a la que se avisa
 const COLD_WARNING := 25.0 # por debajo de este calor se avisa al jugador
 const COLD_O2_FACTOR := 3.0 # multiplica el gasto de oxígeno cuando el calor llega a 0
+# Lluvias: desde la etapa RAIN_STAGE cae un chubasco cada RAIN_CYCLE días
+# que dura RAIN_PART de ese tiempo (unos 50 s cada 3 minutos).
+const RAIN_STAGE := 3
+const RAIN_CYCLE := 0.75
+const RAIN_PART := 0.3
+const RAIN_PLANT_FACTOR := 2.0
+# Los insectos hacen que los bancales cercanos den verduras más rápido.
+const POLLEN_RANGE := 10.0
+const POLLEN_FACTOR := 1.5
+# Versión del guardado. La 2 añadió las Lluvias entre el Deshielo y Habitable.
+const SAVE_VERSION := 2
 const SAVE_PATH := "user://partida.json"
 const AUTOSAVE_TIME := 15.0
 
@@ -182,6 +206,7 @@ var _was_night := false
 var _was_cold := false
 var _was_frozen := false
 var _was_low_oxygen := false
+var _was_raining := false
 # true desde que el jugador muere hasta que vuelve a la base.
 var dead := false
 # true mientras se muestra la pantalla de título: aún no se ha empezado a jugar.
@@ -233,6 +258,7 @@ func _process(delta: float) -> void:
 		_update_stage()
 
 	_update_day_and_cold(delta)
+	_update_rain()
 	_update_hunger(delta)
 	if dead:
 		return
@@ -318,6 +344,56 @@ func _update_day_and_cold(delta: float) -> void:
 	if frozen and not _was_frozen:
 		message.emit("Estás helado: gastas oxígeno el triple de rápido.")
 	_was_frozen = frozen
+
+
+## Intensidad de la lluvia, de 0 (no llueve) a 1. Va por la hora del juego,
+## así que no hace falta guardarla.
+func rain() -> float:
+	if stage < RAIN_STAGE:
+		return 0.0
+	var phase := fposmod((day - 1 + time_of_day) / RAIN_CYCLE, 1.0)
+	if phase >= RAIN_PART:
+		return 0.0
+	# Empieza y acaba poco a poco.
+	return clampf(sin(PI * phase / RAIN_PART) * 3.0, 0.0, 1.0)
+
+
+func is_raining() -> bool:
+	return rain() > 0.2
+
+
+func _update_rain() -> void:
+	var raining := is_raining()
+	if raining and not _was_raining:
+		message.emit("Empieza a llover: el musgo y los árboles crecen el doble.")
+	elif not raining and _was_raining:
+		message.emit("Deja de llover.")
+	_was_raining = raining
+
+
+## Ritmo al que produce una construcción (0 parada, 1 normal): los colectores
+## con la lluvia, lo que gasta energía con la energía que recibe y los
+## bancales, más rápido si hay insectos cerca.
+func production_ratio(kind: String, pos: Vector3) -> float:
+	if MACHINES[kind].get("rain", false):
+		return rain()
+	var ratio := 1.0
+	if int(MACHINES[kind]["energy"]) < 0:
+		ratio = energy_ratio()
+	if kind == "cultivo" and ratio > 0.0 and is_pollinated(pos):
+		ratio *= POLLEN_FACTOR
+	return ratio
+
+
+## true si hay un criadero de insectos con energía cerca del punto.
+func is_pollinated(pos: Vector3) -> bool:
+	if not machine_counts.has("insectos") or energy_ratio() <= 0.0:
+		return false
+	for m in machines:
+		if MACHINES[String(m["kind"])].get("pollinates", false):
+			if Vector3(float(m["x"]), float(m["y"]), float(m["z"])).distance_to(pos) <= POLLEN_RANGE:
+				return true
+	return false
 
 
 func _update_hunger(delta: float) -> void:
@@ -410,11 +486,14 @@ func energy_ratio() -> float:
 ## van al ritmo de la energía que reciben; las que no la gastan, siempre.
 func metric_rate(metric: String) -> float:
 	var ratio := energy_ratio()
+	var plant_factor := lerpf(1.0, RAIN_PLANT_FACTOR, rain())
 	var total := 0.0
 	for kind in machine_counts:
 		var amount := float(MACHINES[kind].get(metric, 0)) * int(machine_counts[kind])
 		if int(MACHINES[kind]["energy"]) < 0:
 			amount *= ratio
+		if metric == "biomass" and MACHINES[kind].get("plant", false):
+			amount *= plant_factor
 		total += amount
 	return total * MACHINE_RATE
 
@@ -583,7 +662,7 @@ func save_game() -> void:
 	if dead or in_title or not is_inside_tree():
 		return
 	var data := {
-		"version": 1,
+		"version": SAVE_VERSION,
 		"inventory": inventory,
 		"has_drill": has_drill,
 		"has_tank": has_tank,
@@ -644,6 +723,10 @@ func load_game() -> bool:
 	pressure = float(data.get("pressure", minf(100.0, (oxygen + temperature) / 2.0)))
 	player_oxygen = float(data.get("player_oxygen", PLAYER_O2_MAX))
 	stage = int(data.get("stage", 0))
+	# Antes de las Lluvias, la etapa 3 era Habitable: sigue siéndolo.
+	if int(data.get("version", 1)) < 2 and stage >= RAIN_STAGE:
+		stage += 1
+	stage = mini(stage, STAGES.size() - 1)
 	time_of_day = float(data.get("time_of_day", START_TIME))
 	day = int(data.get("day", 1))
 	warmth = float(data.get("warmth", WARMTH_MAX))
@@ -653,6 +736,7 @@ func load_game() -> bool:
 		# Partida de antes del hambre: se le dan las raciones del principio.
 		inventory["racion"] = START_RATIONS
 	_was_night = is_night()
+	_was_raining = is_raining()
 	finished = bool(data.get("finished", false))
 	for m in data.get("machines", []):
 		if typeof(m) == TYPE_DICTIONARY and MACHINES.has(m.get("kind", "")):
@@ -708,6 +792,7 @@ func _reset_state() -> void:
 	_was_cold = false
 	_was_frozen = false
 	_was_low_oxygen = false
+	_was_raining = false
 	dead = false
 	in_title = false
 	ui_open = false

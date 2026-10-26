@@ -1,7 +1,7 @@
 extends StaticBody3D
 ## Construcción colocada por el jugador (panel, generador, calentador,
 ## taquilla, musgo, bomba de agua, pantallas, punto de recarga, estación de
-## drones...).
+## drones, colector de lluvia, árbol, criadero de insectos...).
 
 const Drone := preload("res://scripts/drone.gd")
 const DRONE_COUNT := 2
@@ -26,9 +26,12 @@ var _drones: Array[Node3D] = []
 var _charge_light: StandardMaterial3D
 # Frutos del bancal: se ve uno por cada verdura lista para recoger.
 var _fruits: Array[Node3D] = []
-# El musgo nace pequeño y crece hasta su tamaño en GROW_TIME segundos.
+# Las plantas nacen pequeñas y crecen hasta su tamaño en su "grow_time".
 var _growth := 1.0
-const GROW_TIME := 40.0
+# Insectos del criadero: revolotean alrededor de las flores.
+var _insects: Array[Node3D] = []
+# Agua que se ve dentro del colector, más alta cuanto más lleno.
+var _collected: Node3D
 # Pantallas: barras que se rellenan, [{"metric", "fill", "left", "width"}]
 # (con "value", el texto con la cifra), y textos que cambian.
 var _bars: Array = []
@@ -398,6 +401,105 @@ func setup(machine_kind: String) -> void:
 					var ripe := _mesh(fruit, spot + Vector3(0, 0.14, 0), red)
 					ripe.visible = false
 					_fruits.append(ripe)
+		"colector":
+			# Embudo ancho sobre un depósito transparente con el agua dentro.
+			var post := BoxMesh.new()
+			post.size = Vector3(0.9, 0.2, 0.9)
+			mesh_instance.mesh = post
+			mesh_instance.position.y = 0.1
+			material.albedo_color = Color(0.5, 0.52, 0.55)
+			shape.size = Vector3(1.6, 1.9, 1.6)
+			var glass := StandardMaterial3D.new()
+			glass.albedo_color = Color(0.8, 0.9, 1.0, 0.35)
+			glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			var tank := CylinderMesh.new()
+			tank.top_radius = 0.35
+			tank.bottom_radius = 0.35
+			tank.height = 0.9
+			tank.radial_segments = 8
+			_mesh(tank, Vector3(0, 0.65, 0), glass)
+			var water := StandardMaterial3D.new()
+			water.albedo_color = Color(0.2, 0.5, 0.9)
+			var level := CylinderMesh.new()
+			level.top_radius = 0.32
+			level.bottom_radius = 0.32
+			level.height = 0.85
+			level.radial_segments = 8
+			# Se escala en vertical desde abajo según lo que haya dentro.
+			_collected = Node3D.new()
+			_collected.position.y = 0.22
+			add_child(_collected)
+			_mesh(level, Vector3(0, 0.425, 0), water, _collected)
+			_collected.scale.y = 0.05
+			var metal := StandardMaterial3D.new()
+			metal.albedo_color = Color(0.85, 0.55, 0.2)
+			metal.metallic = 0.5
+			var funnel := CylinderMesh.new()
+			funnel.top_radius = 0.8
+			funnel.bottom_radius = 0.12
+			funnel.height = 0.6
+			funnel.radial_segments = 8
+			_mesh(funnel, Vector3(0, 1.45, 0), metal)
+			for sx in [-0.45, 0.45]:
+				var leg := BoxMesh.new()
+				leg.size = Vector3(0.06, 1.3, 0.06)
+				_mesh(leg, Vector3(sx, 0.85, 0.3), material)
+				_mesh(leg, Vector3(sx, 0.85, -0.3), material)
+		"arbol":
+			# Pino low poly: tronco y tres conos apilados.
+			var trunk := CylinderMesh.new()
+			trunk.top_radius = 0.1
+			trunk.bottom_radius = 0.16
+			trunk.height = 1.2
+			trunk.radial_segments = 6
+			mesh_instance.mesh = trunk
+			mesh_instance.position.y = 0.6
+			material.albedo_color = Color(0.4, 0.28, 0.18)
+			shape.size = Vector3(0.5, 3.6, 0.5)
+			var leaves := StandardMaterial3D.new()
+			leaves.albedo_color = Color(0.25, 0.55, 0.22)
+			leaves.roughness = 1.0
+			for k in 3:
+				var cone := CylinderMesh.new()
+				cone.top_radius = 0.0
+				cone.bottom_radius = 0.95 - k * 0.22
+				cone.height = 1.4
+				cone.radial_segments = 7
+				cone.rings = 1
+				_mesh(cone, Vector3(0, 1.5 + k * 0.65, 0), leaves)
+		"insectos":
+			# Colmena de madera sobre patas con flores alrededor.
+			var hive := BoxMesh.new()
+			hive.size = Vector3(0.8, 0.7, 0.6)
+			mesh_instance.mesh = hive
+			mesh_instance.position.y = 0.85
+			material.albedo_color = Color(0.75, 0.55, 0.3)
+			shape.size = Vector3(1.8, 1.4, 1.8)
+			var dark := StandardMaterial3D.new()
+			dark.albedo_color = Color(0.35, 0.25, 0.15)
+			_detail(Vector3(0.9, 0.08, 0.7), Vector3(0, 1.24, 0), dark)
+			_detail(Vector3(0.3, 0.06, 0.02), Vector3(0, 0.6, -0.31), dark)
+			for sx in [-0.3, 0.3]:
+				for sz in [-0.22, 0.22]:
+					_detail(Vector3(0.06, 0.5, 0.06), Vector3(sx, 0.25, sz), dark)
+			var stem := StandardMaterial3D.new()
+			stem.albedo_color = Color(0.3, 0.6, 0.25)
+			var petal_colors := [Color(0.95, 0.4, 0.6), Color(0.95, 0.85, 0.3), Color(0.7, 0.5, 0.95), Color(1.0, 0.95, 0.95)]
+			for i in 8:
+				var angle := TAU * i / 8.0 + 0.3
+				var spot := Vector3(cos(angle), 0, sin(angle)) * (0.75 + 0.1 * (i % 2))
+				_detail(Vector3(0.03, 0.35, 0.03), spot + Vector3(0, 0.17, 0), stem)
+				var petals := StandardMaterial3D.new()
+				petals.albedo_color = petal_colors[i % petal_colors.size()]
+				_detail(Vector3(0.16, 0.05, 0.16), spot + Vector3(0, 0.36, 0), petals)
+			var bug := StandardMaterial3D.new()
+			bug.albedo_color = Color(1.0, 0.85, 0.2)
+			bug.emission_enabled = true
+			bug.emission = Color(0.4, 0.3, 0.0)
+			for i in 6:
+				var insect := _detail(Vector3(0.07, 0.05, 0.07), Vector3(0, 1.0, 0), bug)
+				insect.set_meta("phase", i * 1.7)
+				_insects.append(insect)
 	mesh_instance.material_override = material
 	add_child(mesh_instance)
 	var collision := CollisionShape3D.new()
@@ -579,9 +681,9 @@ static func _moss_mesh() -> Mesh:
 	return st.commit()
 
 
-## El musgo recién plantado empieza pequeño y crece.
+## Las plantas recién plantadas empiezan pequeñas y crecen.
 func sprout() -> void:
-	if kind == "musgo":
+	if Game.MACHINES[kind].has("grow_time"):
 		_growth = 0.0
 		scale = Vector3.ONE * 0.3
 
@@ -642,22 +744,39 @@ func _process(delta: float) -> void:
 			_screen_time = SCREEN_REFRESH
 			update_screen()
 	if _growth < 1.0:
-		_growth = minf(1.0, _growth + delta / GROW_TIME)
+		_growth = minf(1.0, _growth + delta / float(Game.MACHINES[kind]["grow_time"]))
 		scale = Vector3.ONE * lerpf(0.3, 1.0, _growth)
 	if Game.MACHINES[kind].has("produces"):
 		_produce(delta)
+	if not _insects.is_empty():
+		_move_insects()
+
+
+## Los insectos dan vueltas en órbitas distintas; sin energía se posan.
+func _move_insects() -> void:
+	var t := Time.get_ticks_msec() * 0.001
+	var active := Game.energy_ratio() > 0.0
+	for insect in _insects:
+		var phase := float(insect.get_meta("phase"))
+		if active:
+			var radius := 0.6 + 0.3 * sin(t * 0.7 + phase)
+			insect.position = Vector3(cos(t * 1.8 + phase) * radius, 0.75 + 0.35 * sin(t * 2.3 + phase * 2.0), sin(t * 1.8 + phase) * radius)
+		else:
+			insect.position = Vector3(cos(phase) * 0.8, 0.4, sin(phase) * 0.8)
 
 
 ## La bomba y el bancal sacan una unidad cada "produce_time" segundos, más
 ## despacio si les falta energía, hasta llenarse.
 func _produce(delta: float) -> void:
-	var ratio := Game.energy_ratio()
+	var ratio := Game.production_ratio(kind, global_position) if is_inside_tree() else 0.0
 	var total := stored_total()
 	var full := total >= capacity()
 	if _piston:
 		_piston.position.y = 1.5 + (0.0 if full or ratio <= 0.0 else sin(Time.get_ticks_msec() * 0.006) * 0.12)
 	for i in _fruits.size():
 		_fruits[i].visible = i < total
+	if _collected:
+		_collected.scale.y = maxf(0.05, float(total) / capacity())
 	if full or ratio <= 0.0 or data.is_empty():
 		return
 	_produce_time += delta * ratio
@@ -672,7 +791,9 @@ func get_hint() -> String:
 	var recipe_name: String = Game.RECIPES[kind]["name"]
 	if is_storage():
 		var state := ""
-		if (Game.MACHINES[kind].has("produces") or not _drones.is_empty()) and Game.energy_ratio() <= 0.0:
+		if Game.MACHINES[kind].get("rain", false):
+			state = " · llenándose con la lluvia" if Game.is_raining() else " · espera a que llueva"
+		elif (Game.MACHINES[kind].has("produces") or not _drones.is_empty()) and Game.energy_ratio() <= 0.0:
 			state = " · sin energía"
 		elif not _drones.is_empty():
 			var parts := PackedStringArray()
@@ -696,4 +817,6 @@ func get_hint() -> String:
 		return "%s · sin energía" % recipe_name
 	if kind == "cargador":
 		return "%s · aparca el róver al lado para cargarlo" % recipe_name
+	if kind == "insectos":
+		return "%s · polinizan los bancales a menos de %d m" % [recipe_name, int(Game.POLLEN_RANGE)]
 	return "%s · funcionando al %d %%" % [recipe_name, roundi(Game.energy_ratio() * 100.0)]

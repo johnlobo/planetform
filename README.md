@@ -81,15 +81,23 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
   y no pasas frío, y se pueden colocar máquinas sobre su suelo.
 - Tu oxígeno baja con el tiempo; las **botellas** lo recargan. Si llega a cero, mueres.
 - Al morir, la pantalla se funde a negro en 3 segundos y sale **GAME OVER**; con Enter vuelves a la base con el oxígeno, el calor y la comida al máximo.
-- Etapas: Roca muerta (0 %) → Primera neblina (20 %) → Deshielo (50 %, hielo que se funde, lagos, musgo) → Habitable (100 %, aparecen árboles).
+- **Lluvias** (75 %): aparecen nubes, el cielo se vuelve azul y los bosques del mapa empiezan a crecer. Cada 3 minutos de juego cae
+  un chubasco de unos 50 s (gotas, cielo gris, más niebla y sonido de lluvia). Mientras llueve, el musgo y los árboles suben la biomasa
+  el doble de rápido. Construcciones nuevas:
+  - **Colector de lluvia** (2 hierro + 2 silicio): no gasta energía; solo con lluvia saca 1 de agua cada 5 s y guarda hasta 20 (E para abrirlo).
+  - **Plantón de árbol** (2 semillas + 2 agua): se planta fuera, crece en 90 s y sube la biomasa (el doble que el musgo) y algo de oxígeno.
+  - **Criadero de insectos** (3 hierro + 2 cobre + 2 verduras): gasta 1 de energía, sube la biomasa y los bancales a menos de 10 m dan
+    verduras un 50 % más rápido.
+  Una partida guardada antes de que existieran las Lluvias que ya estaba en Habitable sigue en Habitable.
+- Etapas: Roca muerta (0 %) → Primera neblina (20 %) → Deshielo (50 %, hielo que se funde, lagos, musgo) → Lluvias (75 %, nubes, lluvia, bosques) → Habitable (100 %).
 
 La partida se guarda sola cada 15 segundos, al cambiar de etapa, al cerrar la ventana, al perder el foco y, en el navegador, al ocultar la pestaña.
 Al arrancar sale el menú principal: **Continuar partida** carga lo guardado y **Nueva partida** (pide confirmación) la borra y empieza de cero. Con **H** se abre el mismo menú como pausa.
 Se guarda en `user://partida.json` (en el escritorio, la carpeta de datos de usuario de Godot; en el navegador, el almacenamiento del navegador).
 
-Todos los sonidos (pasos, recoger, craftear, colocar, avisos, viento) se generan por código al arrancar en `scripts/sound.gd`, sin archivos de audio ni licencias. El viento sopla más fuerte de noche.
+Todos los sonidos (pasos, recoger, craftear, colocar, avisos, viento, lluvia) se generan por código al arrancar en `scripts/sound.gd`, sin archivos de audio ni licencias. El viento sopla más fuerte de noche.
 
-El aspecto low poly también se genera por código en `scripts/main.gd`: cielo con degradado y atardeceres, niebla que aumenta con la atmósfera, estrellas y luz de luna de noche, rocas y cristales con varias formas, y árboles y arbustos variados al llegar a Habitable.
+El aspecto low poly también se genera por código en `scripts/main.gd`: cielo con degradado y atardeceres, niebla que aumenta con la atmósfera, estrellas y luz de luna de noche, rocas y cristales con varias formas, nubes, lluvia y árboles y arbustos variados al llegar a las Lluvias.
 
 Todas las cantidades son provisionales y están en `scripts/game_state.gd`.
 

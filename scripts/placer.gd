@@ -154,6 +154,8 @@ func _place_machine(point: Vector3, hit: Dictionary) -> String:
 	var on_floor: bool = hit and hit["collider"].is_in_group("base_floor")
 	if on_floor and _kind == "musgo":
 		return "el musgo se planta fuera, en el suelo"
+	if on_floor and Game.MACHINES.get(_kind, {}).get("outside", false):
+		return "va fuera, al aire libre"
 	if on_floor and _mode == "vehicle":
 		return "el róver va fuera de la base"
 	if not on_floor:
