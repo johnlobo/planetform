@@ -39,7 +39,7 @@ func _ready() -> void:
 
 	camera = Camera3D.new()
 	camera.position.y = 1.35
-	camera.far = 300.0
+	camera.far = 700.0
 	add_child(camera)
 	camera.make_current()
 

@@ -10,12 +10,11 @@ const Menu := preload("res://scripts/menu.gd")
 const Placer := preload("res://scripts/placer.gd")
 const Module := preload("res://scripts/module.gd")
 const WaterBody := preload("res://scripts/water_body.gd")
+const Terrain := preload("res://scripts/terrain.gd")
 
-const WORLD_SIZE := 160.0
-const GRID := 64 # cuadros por lado del terreno
-const HEIGHT := 6.0
+const WORLD_SIZE := Terrain.WORLD_SIZE
+# Depósitos de la zona del principio; el resto del mapa tiene los suyos por trozos.
 const RESOURCE_COUNTS := {"hierro": 40, "silicio": 25, "hielo": 25, "cobre": 20}
-const PLANT_COUNT := 80
 const RESOURCE_SCALE := 0.55 # tamaño de los recursos recogibles (malla y colisión)
 const STAR_COUNT := 400
 const ROCK_VARIANTS := 4 # formas distintas de cada tipo de roca
@@ -29,7 +28,6 @@ const MELT_END := 80.0
 const MELT_TIME := 0.25 # parte del Deshielo que tarda en derretirse cada bloque
 const ICE_KEPT := 0.25 # parte del hielo, la de los sitios más altos, que no se derrite
 
-var noise := FastNoiseLite.new()
 var rng := RandomNumberGenerator.new()
 # Aparte de rng para que los detalles visuales no muevan los recursos de sitio.
 var deco_rng := RandomNumberGenerator.new()
@@ -39,9 +37,7 @@ var moon: DirectionalLight3D
 var sky_material: ProceduralSkyMaterial
 var stars: MeshInstance3D
 var star_material: StandardMaterial3D
-var ground_material: StandardMaterial3D
 var water: MeshInstance3D
-var plants: Node3D
 var water_area: Area3D
 # Bloques de hielo y, para cada uno, en qué punto del deshielo empieza a fundirse.
 var ice_nodes: Array[ResourceNode] = []
@@ -49,7 +45,10 @@ var _melt_start := {}
 var _water_level := WATER_LOW
 var _deshielo_explained := false
 var player: CharacterBody3D
-var terrain: StaticBody3D
+var land: Terrain
+var terrain: StaticBody3D # el cuerpo de todo el suelo
+# Malla, material, forma y altura de cada tipo de depósito.
+var resource_defs := {}
 var placer: Node3D
 var modules: Array[Module] = []
 var _shelter_explained := false
@@ -59,16 +58,17 @@ var ground_colors := Gradient.new()
 
 
 func _ready() -> void:
-	noise.seed = 7
-	noise.frequency = 0.02
 	rng.seed = 42
 	deco_rng.seed = 99
 	var loaded := Game.load_game()
 	_setup_gradients()
 	_build_environment()
-	_build_terrain()
 	_build_water()
+	land = Terrain.new()
+	land.world = self
+	# Primero los depósitos: los trozos del terreno también los usan.
 	_spawn_resources()
+	_build_terrain()
 	for m in Game.machines:
 		spawn_machine(m)
 	for m in Game.modules:
@@ -116,7 +116,7 @@ func _process(delta: float) -> void:
 	# De noche queda algo de luz azulada para que se vea el terreno.
 	environment.ambient_light_color = sky.lightened(0.3).lerp(Color(0.25, 0.3, 0.5), night * 0.8)
 	environment.ambient_light_energy = lerpf(0.6, 0.35, night)
-	ground_material.albedo_color = ground_colors.sample(t)
+	land.material.set_shader_parameter("tint", ground_colors.sample(t))
 	sun.light_energy = lerpf(0.6, 1.2, t) * daylight
 	sun.light_color = Color.WHITE.lerp(Color(1.0, 0.7, 0.45), _dusk())
 	moon.light_energy = 0.25 * night
@@ -124,6 +124,10 @@ func _process(delta: float) -> void:
 	star_material.albedo_color.a = night * lerpf(1.0, 0.5, t)
 	stars.visible = night > 0.01
 	stars.global_position = player.global_position
+	# El borde del mapa es un muro de montañas; esto es por si se trepa.
+	var limit := WORLD_SIZE / 2.0 - 5.0
+	player.global_position.x = clampf(player.global_position.x, -limit, limit)
+	player.global_position.z = clampf(player.global_position.z, -limit, limit)
 	sun.rotation_degrees.x = -10.0 - 70.0 * maxf(Game.sun_height(), 0.0)
 	sun.rotation_degrees.y = 30.0 + Game.time_of_day * 360.0
 	if water.visible:
@@ -154,6 +158,8 @@ func water_depth(pos: Vector3) -> float:
 func _update_melting() -> void:
 	var melt := _thaw(MELT_END)
 	for node in ice_nodes:
+		if not node.is_inside_tree():
+			continue
 		var f := clampf((melt - float(_melt_start[node])) / MELT_TIME, 0.0, 1.0)
 		if node.position.y < water.position.y - 0.1:
 			f = 1.0
@@ -166,14 +172,14 @@ func _dusk() -> float:
 
 
 func height_at(x: float, z: float) -> float:
-	return noise.get_noise_2d(x, z) * HEIGHT
+	return land.height_at(x, z)
 
 
 ## Altura del terreno tal como se dibuja: el triángulo de la malla que
 ## contiene el punto. height_at da la del ruido, que en las lomas queda
 ## hasta medio metro por encima y deja los objetos flotando.
 func surface_height(x: float, z: float) -> float:
-	var step := WORLD_SIZE / GRID
+	var step := Terrain.STEP
 	var half := WORLD_SIZE / 2.0
 	var x0 := -half + floorf((x + half) / step) * step
 	var z0 := -half + floorf((z + half) / step) * step
@@ -255,54 +261,12 @@ func _build_stars() -> void:
 
 
 func _build_terrain() -> void:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	st.set_smooth_group(-1) # normales planas: aspecto low poly
-	var step := WORLD_SIZE / GRID
-	var half := WORLD_SIZE / 2.0
-	for i in GRID:
-		for j in GRID:
-			var x0 := -half + i * step
-			var z0 := -half + j * step
-			var a := Vector3(x0, height_at(x0, z0), z0)
-			var b := Vector3(x0 + step, height_at(x0 + step, z0), z0)
-			var c := Vector3(x0, height_at(x0, z0 + step), z0 + step)
-			var d := Vector3(x0 + step, height_at(x0 + step, z0 + step), z0 + step)
-			for tri in [[a, b, c], [b, d, c]]:
-				st.set_color(_ground_shade(tri[0], tri[1], tri[2]))
-				for v in tri:
-					st.add_vertex(v)
-	st.generate_normals()
-	var mesh := st.commit()
-
-	ground_material = StandardMaterial3D.new()
-	ground_material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	ground_material.roughness = 1.0
-	# Los colores por triángulo se multiplican por el color de la etapa.
-	ground_material.vertex_color_use_as_albedo = true
-
-	var body := StaticBody3D.new()
-	var mesh_instance := MeshInstance3D.new()
-	mesh_instance.mesh = mesh
-	mesh_instance.material_override = ground_material
-	body.add_child(mesh_instance)
-	var shape := mesh.create_trimesh_shape()
-	shape.backface_collision = true
-	var collision := CollisionShape3D.new()
-	collision.shape = shape
-	body.add_child(collision)
-	add_child(body)
-	terrain = body
-
-
-## Tono de gris de un triángulo: más oscuro en pendiente y en los valles,
-## con algo de ruido para que se distingan las caras.
-func _ground_shade(a: Vector3, b: Vector3, c: Vector3) -> Color:
-	var normal := (b - a).cross(c - a).normalized()
-	var flat := absf(normal.y)
-	var height := ((a.y + b.y + c.y) / 3.0 + HEIGHT) / (2.0 * HEIGHT)
-	var v := 0.7 + 0.2 * flat + 0.15 * height + deco_rng.randf_range(-0.05, 0.05)
-	return Color(v, v, v)
+	add_child(land)
+	var around := Vector3.ZERO
+	if Game.player_position != null:
+		around = Game.player_position
+	land.build(around)
+	terrain = land.body
 
 
 func _build_water() -> void:
@@ -331,37 +295,50 @@ func _build_water() -> void:
 	water_area.monitoring = false
 	water.add_child(water_area)
 
-	plants = Node3D.new()
-	plants.visible = false
-	add_child(plants)
-
 
 func _spawn_resources() -> void:
-	var defs := {
+	resource_defs = {
 		"hierro": _resource_def(_variants(_low_poly_rock), Color(0.55, 0.35, 0.25), _sphere_shape(0.8), Vector3(0, 0.4, 0)),
 		"silicio": _resource_def(_variants(_crystal), Color(0.55, 0.85, 0.95), _box_shape(Vector3(0.9, 1.6, 0.9)), Vector3(0, 0.8, 0)),
 		"hielo": _resource_def(_variants(_ice_slab), Color(0.85, 0.95, 1.0), _box_shape(Vector3(1.6, 0.4, 1.6)), Vector3(0, 0.2, 0)),
 		"cobre": _resource_def(_variants(_low_poly_rock), Color(0.3, 0.65, 0.5), _sphere_shape(0.8), Vector3(0, 0.4, 0)),
 	}
-	defs["silicio"]["material"].emission_enabled = true
-	defs["silicio"]["material"].emission = Color(0.1, 0.25, 0.3)
-	defs["silicio"]["material"].roughness = 0.2
-	defs["hielo"]["material"].roughness = 0.15
+	resource_defs["silicio"]["material"].emission_enabled = true
+	resource_defs["silicio"]["material"].emission = Color(0.1, 0.25, 0.3)
+	resource_defs["silicio"]["material"].roughness = 0.2
+	resource_defs["hielo"]["material"].roughness = 0.15
 	for type in RESOURCE_COUNTS:
-		var def: Dictionary = defs[type]
-		var meshes: Array = def["meshes"]
 		for n in int(RESOURCE_COUNTS[type]):
 			var pos := _random_point(8.0)
-			var node := ResourceNode.new()
-			var mesh: Mesh = meshes[deco_rng.randi() % meshes.size()]
-			node.setup(type, mesh, def["material"], def["shape"], def["offset"])
+			var node := make_resource(type)
 			node.position = pos
 			node.rotation.y = rng.randf_range(0.0, TAU)
-			node.scale = Vector3.ONE * RESOURCE_SCALE
 			add_child(node)
 			if type == "hielo":
 				ice_nodes.append(node)
 	_assign_melt_order()
+
+
+## Depósito nuevo del tipo dado, aún sin colocar.
+func make_resource(type: String) -> ResourceNode:
+	var def: Dictionary = resource_defs[type]
+	var meshes: Array = def["meshes"]
+	var node := ResourceNode.new()
+	node.setup(type, meshes[deco_rng.randi() % meshes.size()], def["material"], def["shape"], def["offset"])
+	node.scale = Vector3.ONE * RESOURCE_SCALE
+	return node
+
+
+## Bloque de hielo de un trozo del terreno que empieza a fundirse en "start"
+## (de 0 a 1 del deshielo; INF si no se funde).
+func add_ice(node: ResourceNode, start: float) -> void:
+	ice_nodes.append(node)
+	_melt_start[node] = start
+
+
+func remove_ice(node: ResourceNode) -> void:
+	ice_nodes.erase(node)
+	_melt_start.erase(node)
 
 
 ## Los bloques más bajos se funden antes; la parte más alta no se funde nunca
@@ -538,9 +515,8 @@ func _on_stage_changed(stage: int) -> void:
 		if not _deshielo_explained and Game.biomass <= 0.0:
 			_deshielo_explained = true
 			_explain_deshielo()
-	if stage >= 3 and plants.get_child_count() == 0:
-		_spawn_plants()
-		plants.visible = true
+	if stage >= 3:
+		land.plants_visible = true
 
 
 ## Mensajes seguidos al llegar al Deshielo, para que se entienda qué cambia.
@@ -553,57 +529,8 @@ func _explain_deshielo() -> void:
 		Game.message.emit(text)
 
 
-func _spawn_plants() -> void:
-	var trunk := CylinderMesh.new()
-	trunk.top_radius = 0.08
-	trunk.bottom_radius = 0.12
-	trunk.height = 0.8
-	trunk.radial_segments = 5
-	var crown := CylinderMesh.new()
-	crown.top_radius = 0.0
-	crown.bottom_radius = 0.7
-	crown.height = 1.4
-	crown.radial_segments = 5
-	var trunk_material := StandardMaterial3D.new()
-	trunk_material.albedo_color = Color(0.4, 0.28, 0.18)
-	var greens: Array[StandardMaterial3D] = []
-	for color in [Color(0.25, 0.6, 0.25), Color(0.35, 0.65, 0.2), Color(0.2, 0.5, 0.3)]:
-		var material := StandardMaterial3D.new()
-		material.albedo_color = color
-		greens.append(material)
-	var bush_meshes := _variants(_bush)
-	for n in PLANT_COUNT:
-		var pos := _random_point(4.0)
-		if pos.y < water.position.y + 0.3:
-			continue
-		var plant := Node3D.new()
-		plant.position = pos
-		plant.rotation.y = deco_rng.randf_range(0.0, TAU)
-		plant.scale = Vector3.ONE * deco_rng.randf_range(0.7, 1.4)
-		var green: StandardMaterial3D = greens[deco_rng.randi() % greens.size()]
-		if deco_rng.randf() < 0.65:
-			# Árbol: tronco y dos o tres conos apilados.
-			_add_part(plant, trunk, trunk_material, 0.4)
-			var layers := deco_rng.randi_range(2, 3)
-			for k in layers:
-				var part := _add_part(plant, crown, green, 1.1 + k * 0.55)
-				part.scale = Vector3.ONE * (1.0 - k * 0.22)
-		else:
-			_add_part(plant, bush_meshes[deco_rng.randi() % bush_meshes.size()], green, 0.25)
-		plants.add_child(plant)
-
-
-func _add_part(parent: Node3D, mesh: Mesh, material: Material, y: float) -> MeshInstance3D:
-	var part := MeshInstance3D.new()
-	part.mesh = mesh
-	part.material_override = material
-	part.position.y = y
-	parent.add_child(part)
-	return part
-
-
 func _random_point(min_distance: float) -> Vector3:
-	var limit := WORLD_SIZE * 0.45
+	var limit := Terrain.START_AREA * 0.45
 	var x := 0.0
 	var z := 0.0
 	while Vector2(x, z).length() < min_distance:
@@ -654,15 +581,6 @@ func _low_poly_rock() -> Mesh:
 	sphere.radial_segments = 7
 	sphere.rings = 4
 	return _jagged(sphere, 0.25)
-
-
-func _bush() -> Mesh:
-	var sphere := SphereMesh.new()
-	sphere.radius = 0.6
-	sphere.height = 0.9
-	sphere.radial_segments = 6
-	sphere.rings = 3
-	return _jagged(sphere, 0.2)
 
 
 ## Grupo de tres a cinco prismas inclinados.

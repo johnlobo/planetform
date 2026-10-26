@@ -112,7 +112,8 @@ Para abrirla: intenta abrirla una vez, ve a **Ajustes del Sistema → Privacidad
 project.godot          Configuración (autoload Game, renderizador Compatibility)
 scenes/main.tscn       Escena principal
 scripts/game_state.gd  Estado global: inventario, recetas, métricas, etapas
-scripts/main.gd        Construye el mundo: terreno low poly, recursos, agua, plantas
+scripts/main.gd        Construye el mundo: cielo, agua, recursos y la base
+scripts/terrain.gd     Terreno de 2 km por trozos: montañas, rocas, árboles y recursos de cada zona
 scripts/player.gd      Jugador en primera persona y recolección
 scripts/resource_node.gd  Depósitos de recursos que reaparecen
 scripts/machine.gd     Máquinas, taquillas y pantallas
