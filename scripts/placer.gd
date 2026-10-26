@@ -8,6 +8,7 @@ extends Node3D
 const Machine := preload("res://scripts/machine.gd")
 const Module := preload("res://scripts/module.gd")
 const Player := preload("res://scripts/player.gd")
+const Rover := preload("res://scripts/rover.gd")
 
 const REACH := 10.0 # metros desde la cámara
 const MAX_SLOPE := 0.7 # diferencia de altura máxima entre las esquinas, en metros
@@ -21,7 +22,7 @@ var terrain: CollisionObject3D
 var player: Player
 
 var _kind := ""
-var _mode := "" # "building", "module" o "fitting", como en Game.RECIPES
+var _mode := "" # "building", "module", "fitting" o "vehicle", como en Game.RECIPES
 var _ghost: Node3D
 var _rotation := 0.0
 var _valid := false
@@ -46,6 +47,11 @@ func start(kind: String) -> void:
 			machine.setup(kind)
 			machine.make_ghost(_green)
 			_ghost = machine
+		"vehicle":
+			var rover := Rover.new()
+			rover.setup(kind)
+			rover.make_ghost(_green)
+			_ghost = rover
 		"module":
 			var module := Module.new()
 			module.setup({}, true)
@@ -125,7 +131,7 @@ func _update_ghost() -> void:
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	var point: Vector3 = hit["position"] if hit else from + forward * REACH
 	match _mode:
-		"building":
+		"building", "vehicle":
 			_reason = _place_machine(point, hit)
 		"module":
 			_reason = _place_module(point, hit)
@@ -148,6 +154,8 @@ func _place_machine(point: Vector3, hit: Dictionary) -> String:
 	var on_floor: bool = hit and hit["collider"].is_in_group("base_floor")
 	if on_floor and _kind == "musgo":
 		return "el musgo se planta fuera, en el suelo"
+	if on_floor and _mode == "vehicle":
+		return "el róver va fuera de la base"
 	if not on_floor:
 		point.y = world.surface_height(point.x, point.z)
 	var rot := player.rotation.y + _rotation
@@ -158,7 +166,7 @@ func _place_machine(point: Vector3, hit: Dictionary) -> String:
 	var common := _check_area(point)
 	if common != "":
 		return common
-	var size: Vector3 = (_ghost as Machine).footprint
+	var size: Vector3 = _ghost.get("footprint")
 	var basis := Basis(Vector3.UP, rot)
 	var exclude := [terrain.get_rid()]
 	if on_floor:
@@ -322,6 +330,11 @@ func _confirm() -> void:
 			var pos := _ghost.global_position
 			var rot := _ghost.rotation.y
 			world.spawn_machine(Game.register_machine(kind, pos, rot)).sprout()
+		"vehicle":
+			var pos := _ghost.global_position
+			var data := {"kind": kind, "x": pos.x, "y": pos.y + 0.3, "z": pos.z, "rot": _ghost.rotation.y, "battery": Rover.BATTERY_MAX}
+			Game.vehicles.append(data)
+			world.spawn_vehicle(data).drop()
 		"module":
 			var pos := _ghost.global_position
 			var data := {"x": pos.x, "y": pos.y, "z": pos.z, "rot": _ghost.rotation.y, "sides": ["pared", "pared", "pared", "pared"]}
@@ -332,7 +345,7 @@ func _confirm() -> void:
 	Sfx.play("colocar")
 	# Las piezas de la base se suelen poner varias seguidas: se sigue
 	# colocando mientras haya materiales.
-	if _mode != "building" and Game.can_craft(kind):
+	if _mode in ["module", "fitting"] and Game.can_craft(kind):
 		_update_ghost()
 	else:
 		cancel()

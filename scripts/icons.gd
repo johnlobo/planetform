@@ -7,6 +7,7 @@ signal finished
 
 const Machine := preload("res://scripts/machine.gd")
 const Module := preload("res://scripts/module.gd")
+const Rover := preload("res://scripts/rover.gd")
 const SIZE := 128
 
 ## {pieza: ImageTexture}; vacío hasta que se emite finished.
@@ -86,6 +87,12 @@ func _model(kind: String) -> Node3D:
 				if not (child.has_meta("side") and int(child.get_meta("side")) == 0):
 					child.visible = false
 			return module
+		"vehicle":
+			var rover := Rover.new()
+			rover.setup(kind)
+			rover.set_physics_process(false)
+			rover.collision_layer = 0
+			return rover
 	var machine := Machine.new()
 	machine.setup(kind)
 	machine.set_process(false)
