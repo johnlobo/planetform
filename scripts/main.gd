@@ -11,6 +11,7 @@ const Placer := preload("res://scripts/placer.gd")
 const Module := preload("res://scripts/module.gd")
 const WaterBody := preload("res://scripts/water_body.gd")
 const Terrain := preload("res://scripts/terrain.gd")
+const Rover := preload("res://scripts/rover.gd")
 
 const WORLD_SIZE := Terrain.WORLD_SIZE
 # Depósitos de la zona del principio; el resto del mapa tiene los suyos por trozos.
@@ -73,6 +74,8 @@ func _ready() -> void:
 		spawn_machine(m)
 	for m in Game.modules:
 		spawn_module(m)
+	for v in Game.vehicles:
+		spawn_vehicle(v)
 	_spawn_player()
 	placer = Placer.new()
 	placer.world = self
@@ -386,6 +389,18 @@ func spawn_machine(data: Dictionary) -> Machine:
 	return machine
 
 
+## Crea un vehículo a partir de su entrada de Game.vehicles. Aparece quieto
+## (congelado) hasta que alguien se sube.
+func spawn_vehicle(data: Dictionary) -> Rover:
+	var rover := Rover.new()
+	rover.data = data
+	rover.setup(String(data["kind"]))
+	rover.position = Vector3(float(data["x"]), float(data["y"]), float(data["z"]))
+	rover.rotation.y = float(data["rot"])
+	add_child(rover)
+	return rover
+
+
 func spawn_module(data: Dictionary) -> void:
 	var module := Module.new()
 	module.setup(data)
@@ -422,6 +437,9 @@ func dismantle_info(target: Object) -> Dictionary:
 	if target is Machine:
 		var machine := target as Machine
 		return {"name": Game.RECIPES[machine.kind]["name"], "node": machine, "refund": Game.RECIPES[machine.kind]["cost"]}
+	if target is Rover:
+		var rover := target as Rover
+		return {"name": Game.RECIPES[rover.kind]["name"], "node": rover, "refund": Game.RECIPES[rover.kind]["cost"]}
 	if not (target is Node and target.has_meta("module")):
 		return {}
 	var module: Module = target.get_meta("module")
@@ -468,6 +486,12 @@ func dismantle(target: Object) -> bool:
 			Game.refund(machine.items())
 		Game.unregister_machine(machine.data)
 		machine.queue_free()
+	elif node is Rover:
+		var rover := node as Rover
+		# Lo del maletero vuelve a la mochila.
+		Game.refund(rover.items())
+		Game.vehicles.erase(rover.data)
+		rover.queue_free()
 	elif node is Module:
 		_remove_module(node as Module)
 	else:

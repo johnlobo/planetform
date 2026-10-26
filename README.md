@@ -19,11 +19,12 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 | --- | --- |
 | WASD / flechas | Moverse |
 | Ratón | Mirar |
-| Espacio | Saltar |
+| Espacio | Saltar (mantenido en el aire, con propulsores: volar un poco) |
 | Clic izquierdo | Usar la herramienta (y capturar el ratón) |
 | 1 / 2 / 3 o rueda del ratón | Cambiar el modo de la herramienta: recoger, construir o desmontar |
 | Tab o C | Abrir y cerrar el menú de crafteo (herramientas y botellas) |
-| E | Abrir la taquilla, la bomba de agua o el bancal que miras |
+| E | Abrir la taquilla, la bomba de agua, el bancal o la estación de drones que miras; subir al róver y bajar de él |
+| W S / A D (en el róver) | Acelerar y frenar o marcha atrás / girar; Espacio es el freno |
 | Q | Usar una botella de oxígeno |
 | F | Comer (verduras, raciones o guiso) |
 | H | Abrir y cerrar el menú de pausa |
@@ -56,6 +57,15 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
   los lagos van subiendo poco a poco en los valles. Con el agua por encima de las rodillas andas más despacio.
 - **Agua:** se recoge con un clic en la superficie de un lago (no se agota) o con una **bomba de agua** (gasta 1 de energía,
   saca 1 de agua cada 6 s, guarda hasta 20; se abre con E para sacarla).
+- **Propulsores** (Primera neblina, se craftean con Tab): con Espacio pulsado en el aire empujan hacia arriba unos 3 s
+  (unos 20 m de subida) y dejan ir más rápido; se rellenan solos al pisar el suelo. Sirven para subir a las montañas.
+- **Róver de exploración** (Primera neblina): se coloca con el menú de construcción. E para subir y bajar.
+  Tiene un **maletero** de 20 unidades (clic en modo recoger) y una **batería** que se gasta al acelerar (unos 2 minutos
+  de acelerador). Se recarga aparcado a menos de 6 m de un **punto de recarga**, que gasta 1 de energía.
+  Al desmontarlo, lo del maletero vuelve a la mochila.
+- **Estación de drones** (Deshielo, gasta 2 de energía): sus dos drones van solos al depósito libre más cercano
+  (hasta 70 m), recogen 1 unidad y la traen a la estación, que guarda hasta 30. Se abre con E para sacarlo.
+  Sin energía se quedan en sus plataformas.
 - **Biomasa:** las **semillas de musgo** (1 agua + 1 silicio) se plantan fuera con el menú de construcción. El musgo crece
   solo, no gasta energía y sube la biomasa. El **bancal de cultivo** (con lámpara) la sube el triple pero gasta 1 de energía; va bien dentro de la base.
 - **Comida y hambre:** la barra de **comida** se vacía en 12 minutos (tres días), también dentro de la base. Con **F** comes:

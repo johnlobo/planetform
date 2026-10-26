@@ -13,6 +13,7 @@ signal tool_changed(mode: String)
 signal tool_used(point: Vector3)
 signal build_menu_requested
 signal locker_requested(locker: Node3D)
+signal driving_changed(driving: bool)
 
 const RESOURCE_NAMES := {
 	"hierro": "Hierro",
@@ -34,6 +35,10 @@ const RECIPES := {
 	"generador": {"name": "Generador de oxígeno", "cost": {"hierro": 3, "hielo": 2}, "kind": "building", "stage": 0},
 	"calentador": {"name": "Calentador", "cost": {"hierro": 4, "silicio": 1}, "kind": "building", "stage": 1},
 	"perforadora": {"name": "Perforadora de gases", "cost": {"hierro": 3, "silicio": 1, "hielo": 1}, "kind": "building", "stage": 0},
+	# Primera neblina: para salir a explorar lejos de la base.
+	"jetpack": {"name": "Propulsores", "cost": {"hierro": 4, "silicio": 2, "hielo": 2}, "kind": "tool", "stage": 1},
+	"rover": {"name": "Róver de exploración", "cost": {"hierro": 10, "silicio": 4}, "kind": "vehicle", "stage": 1},
+	"cargador": {"name": "Punto de recarga", "cost": {"hierro": 3, "silicio": 2}, "kind": "building", "stage": 1},
 	"botella": {"name": "Botella de oxígeno", "cost": {"hielo": 1}, "kind": "consumable", "stage": 0},
 	# Deshielo
 	"tanque": {"name": "Tanque de oxígeno", "cost": {"hierro": 2, "cobre": 2}, "kind": "tool", "stage": 2},
@@ -46,6 +51,7 @@ const RECIPES := {
 	"musgo": {"name": "Musgo", "cost": {"semillas": 1}, "kind": "building", "stage": 2},
 	"bomba": {"name": "Bomba de agua", "cost": {"hierro": 3, "cobre": 2}, "kind": "building", "stage": 2},
 	"cultivo": {"name": "Bancal de cultivo", "cost": {"hierro": 2, "agua": 3, "semillas": 2}, "kind": "building", "stage": 2},
+	"drones": {"name": "Estación de drones", "cost": {"hierro": 6, "cobre": 4, "silicio": 3}, "kind": "building", "stage": 2},
 	# Base: módulos que encajan entre sí y piezas para sus paredes.
 	"modulo": {"name": "Módulo de hábitat", "cost": {"hierro": 6, "silicio": 2}, "kind": "module", "stage": 0},
 	"puerta": {"name": "Puerta", "cost": {"hierro": 2}, "kind": "fitting", "stage": 0},
@@ -60,7 +66,7 @@ const RECIPES := {
 }
 
 # Recetas que se colocan en el mundo en vez de ir al inventario.
-const PLACEABLE_KINDS := ["building", "module", "fitting"]
+const PLACEABLE_KINDS := ["building", "module", "fitting", "vehicle"]
 
 # Efecto de cada construcción: energía que da (+) o gasta (-) y cuánto sube
 # cada métrica del planeta, en múltiplos de MACHINE_RATE (la que no se pone
@@ -92,6 +98,10 @@ const MACHINES := {
 	"monitor_calor": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "display": "temperature"},
 	"monitor_presion": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "display": "pressure"},
 	"monitor_biomasa": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "display": "biomass"},
+	# Carga la batería de los róveres que se aparcan al lado.
+	"cargador": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 0},
+	# Sus drones traen lo que recogen de los depósitos cercanos y lo guardan.
+	"drones": {"energy": -2, "oxygen": 0, "temperature": 0, "biomass": 0, "storage": 30, "gathers": true},
 }
 
 # Métricas del planeta, en el orden en que salen en la interfaz.
@@ -117,6 +127,7 @@ const STAGES := [
 const MACHINE_RATE := 0.05 # puntos de métrica por segundo y máquina activa
 const PLAYER_O2_MAX := 100.0
 const TANK_O2_MAX := 200.0
+const JETPACK_FUEL_MAX := 100.0
 const PLAYER_O2_DRAIN := 0.5 # por segundo, con el planeta sin oxígeno
 const BOTTLE_REFILL := 50.0
 # Hambre: la barra de comida se vacía en HUNGER_MAX / HUNGER_DRAIN segundos
@@ -148,6 +159,9 @@ var inventory := {"hierro": 0, "silicio": 0, "hielo": 0, "cobre": 0, "agua": 0, 
 		"racion": START_RATIONS, "verdura": 0, "guiso": 0}
 var has_drill := false
 var has_tank := false
+var has_jetpack := false
+# Combustible de los propulsores, de 0 a JETPACK_FUEL_MAX.
+var jetpack_fuel := 100.0
 # Número de construcciones colocadas de cada tipo.
 var machine_counts := {}
 var oxygen := 0.0
@@ -181,6 +195,10 @@ var tool_mode := "recoger"
 var machines: Array = []
 # Módulos de la base: [{"x", "y", "z", "rot", "sides"}].
 var modules: Array = []
+# Vehículos: [{"kind", "x", "y", "z", "rot", "battery", "items"}].
+var vehicles: Array = []
+# El vehículo que conduce el jugador, o null.
+var vehicle: Node3D
 # true mientras el jugador está dentro de un módulo de la base.
 var sheltered := false
 # Posición del jugador leída de la partida guardada, o null si no hay.
@@ -413,7 +431,7 @@ func is_unlocked(id: String) -> bool:
 func can_craft(id: String) -> bool:
 	if not is_unlocked(id):
 		return false
-	if (id == "taladro" and has_drill) or (id == "tanque" and has_tank):
+	if (id == "taladro" and has_drill) or (id == "tanque" and has_tank) or (id == "jetpack" and has_jetpack):
 		return false
 	var cost: Dictionary = RECIPES[id]["cost"]
 	for res in cost:
@@ -439,6 +457,10 @@ func craft(id: String) -> bool:
 			if id == "tanque":
 				has_tank = true
 				message.emit("Tanque de oxígeno: tu reserva sube a %d." % int(TANK_O2_MAX))
+			elif id == "jetpack":
+				has_jetpack = true
+				jetpack_fuel = JETPACK_FUEL_MAX
+				message.emit("Propulsores: mantén Espacio en el aire para volar un poco.")
 			else:
 				has_drill = true
 				message.emit("Taladro mejorado: ahora recoges el doble.")
@@ -565,6 +587,7 @@ func save_game() -> void:
 		"inventory": inventory,
 		"has_drill": has_drill,
 		"has_tank": has_tank,
+		"has_jetpack": has_jetpack,
 		"oxygen": oxygen,
 		"temperature": temperature,
 		"biomass": biomass,
@@ -578,10 +601,12 @@ func save_game() -> void:
 		"finished": finished,
 		"machines": machines,
 		"modules": modules,
+		"vehicles": vehicles,
 	}
 	var player := get_tree().get_first_node_in_group("player") as Node3D
 	if player:
-		var p := player.global_position
+		# Conduciendo se guarda el sitio donde se baja, junto al róver.
+		var p: Vector3 = player.saved_position() if player.has_method("saved_position") else player.global_position
 		data["player"] = [p.x, p.y, p.z]
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null:
@@ -610,6 +635,7 @@ func load_game() -> bool:
 		inventory[id] = int(saved_inventory.get(id, 0))
 	has_drill = bool(data.get("has_drill", false))
 	has_tank = bool(data.get("has_tank", false))
+	has_jetpack = bool(data.get("has_jetpack", false))
 	oxygen = float(data.get("oxygen", 0.0))
 	temperature = float(data.get("temperature", 0.0))
 	biomass = float(data.get("biomass", 0.0))
@@ -635,6 +661,9 @@ func load_game() -> bool:
 	for m in data.get("modules", []):
 		if typeof(m) == TYPE_DICTIONARY:
 			modules.append(m)
+	for v in data.get("vehicles", []):
+		if typeof(v) == TYPE_DICTIONARY and RECIPES.has(v.get("kind", "")):
+			vehicles.append(v)
 	var p = data.get("player")
 	if p is Array and p.size() == 3:
 		player_position = Vector3(float(p[0]), float(p[1]), float(p[2]))
@@ -659,6 +688,8 @@ func _reset_state() -> void:
 	inventory["racion"] = START_RATIONS
 	has_drill = false
 	has_tank = false
+	has_jetpack = false
+	jetpack_fuel = JETPACK_FUEL_MAX
 	machine_counts = {}
 	oxygen = 0.0
 	temperature = 0.0
@@ -683,6 +714,8 @@ func _reset_state() -> void:
 	placing = false
 	machines = []
 	modules = []
+	vehicles = []
+	vehicle = null
 	tool_mode = "recoger"
 	sheltered = false
 	player_position = null

@@ -7,7 +7,7 @@ const Machine := preload("res://scripts/machine.gd")
 
 const MESSAGE_TIME := 4.0
 const ICON_SIZE := 96
-const BUILD_COLUMNS := 7
+const BUILD_COLUMNS := 8
 const MODE_COLORS := {
 	"recoger": Color(1.0, 0.85, 0.55),
 	"construir": Color(0.55, 0.88, 1.0),
@@ -20,6 +20,8 @@ var planet_label: Label
 var oxygen_bar: ProgressBar
 var warmth_bar: ProgressBar
 var hunger_bar: ProgressBar
+var jetpack_title: Label
+var jetpack_bar: ProgressBar
 var hint_label: Label
 var message_label: Label
 var craft_panel: PanelContainer
@@ -35,7 +37,8 @@ var mode_labels := {}
 var icons: Icons
 # Panel abierto ahora (crafteo, construcción o taquilla), o null.
 var _open_panel: Control
-var _locker: Machine
+# La taquilla, máquina o maletero abierto: una Machine o un róver.
+var _locker: Node3D
 var _locker_total := 0
 var death_overlay: ColorRect
 var death_label: Label
@@ -69,7 +72,7 @@ func _ready() -> void:
 	help.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	help.offset_left = 16
 	help.offset_bottom = -16
-	help.text = "WASD mover · Espacio saltar · Clic usar herramienta · 1 2 3 o rueda cambiar modo\nTab craftear · E abrir taquilla · Q usar botella · F comer · R girar · H menú · Esc soltar ratón"
+	help.text = "WASD mover · Espacio saltar · Clic usar herramienta · 1 2 3 o rueda cambiar modo\nTab craftear · E abrir taquilla o subir al róver · Q usar botella · F comer · R girar · H menú · Esc soltar ratón"
 
 	_build_mode_bar()
 
@@ -105,6 +108,14 @@ func _ready() -> void:
 	hunger_bar.custom_minimum_size = Vector2(300, 20)
 	hunger_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	oxygen_box.add_child(hunger_bar)
+	jetpack_title = Label.new()
+	jetpack_title.text = "Propulsores"
+	oxygen_box.add_child(jetpack_title)
+	jetpack_bar = ProgressBar.new()
+	jetpack_bar.max_value = Game.JETPACK_FUEL_MAX
+	jetpack_bar.custom_minimum_size = Vector2(300, 20)
+	jetpack_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	oxygen_box.add_child(jetpack_bar)
 	add_child(oxygen_box)
 
 	_build_craft_panel()
@@ -160,6 +171,9 @@ func _process(delta: float) -> void:
 	oxygen_bar.value = Game.player_oxygen
 	warmth_bar.value = Game.warmth
 	hunger_bar.value = Game.hunger
+	jetpack_title.visible = Game.has_jetpack
+	jetpack_bar.visible = Game.has_jetpack
+	jetpack_bar.value = Game.jetpack_fuel
 	hint_label.text = "" if Game.ui_open else Game.hint
 	if _open_panel == locker_panel and not is_instance_valid(_locker):
 		_close_panel()
@@ -355,6 +369,8 @@ func _refresh_inventory() -> void:
 		lines.append("Taladro mejorado")
 	if Game.has_tank:
 		lines.append("Tanque de oxígeno")
+	if Game.has_jetpack:
+		lines.append("Propulsores")
 	inventory_label.text = "\n".join(lines)
 	if _open_panel:
 		_refresh_panel()
@@ -414,6 +430,10 @@ func _refresh_build_grid() -> void:
 		button.disabled = not Game.can_craft(id)
 		button.pressed.connect(_on_build_pressed.bind(id))
 		var tip := "%s\n%s" % [recipe["name"], Game.cost_text(recipe["cost"])]
+		if recipe["kind"] == "vehicle":
+			tip += "\nMaletero pequeño y batería\nSe carga en un punto de recarga"
+		if Game.MACHINES.get(id, {}).get("gathers", false):
+			tip += "\nSus drones recogen de los depósitos cercanos"
 		if recipe["kind"] == "building":
 			var energy := int(Game.MACHINES[id]["energy"])
 			if energy > 0:
@@ -468,7 +488,7 @@ func _on_build_pressed(id: String) -> void:
 	Game.craft(id)
 
 
-func _on_locker_requested(locker: Machine) -> void:
+func _on_locker_requested(locker: Node3D) -> void:
 	if not get_tree().paused and not Game.dead:
 		_show_panel(locker_panel)
 		_locker = locker
@@ -482,20 +502,20 @@ func _refresh_locker() -> void:
 	_locker_total = _locker.stored_total()
 	var locker_name: String = Game.RECIPES[_locker.kind]["name"]
 	locker_title.text = "%s · %d / %d (E, Tab o Esc para cerrar)" % [locker_name, _locker.stored_total(), _locker.capacity()]
-	# En la bomba y el bancal solo se saca lo producido; no se guarda nada.
-	var accepts: bool = not Game.MACHINES[_locker.kind].has("produces")
+	# En la bomba, el bancal y la estación de drones solo se saca lo que traen.
+	var accepts: bool = _locker.accepts_items()
 	for column in [locker_inventory, locker_contents]:
 		for child in column.get_children():
 			child.queue_free()
 	locker_inventory.add_child(_small_heading("Mochila"))
 	if not accepts:
 		var note := Label.new()
-		note.text = "Aquí solo se saca lo que produce."
+		note.text = "Aquí solo se saca lo que trae." if Game.MACHINES[_locker.kind].get("gathers", false) else "Aquí solo se saca lo que produce."
 		note.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
 		locker_inventory.add_child(note)
 	locker_contents.add_child(_small_heading(locker_name))
-	var free := _locker.capacity() - _locker.stored_total()
-	var items := _locker.items()
+	var free: int = _locker.capacity() - _locker.stored_total()
+	var items: Dictionary = _locker.items()
 	for id in Game.inventory:
 		var have := int(Game.inventory[id])
 		if have > 0 and accepts:
@@ -532,7 +552,7 @@ func _locker_row(id: String, count: int, movable: int, storing: bool) -> HBoxCon
 func _move_items(id: String, amount: int, storing: bool) -> void:
 	if not is_instance_valid(_locker) or amount <= 0:
 		return
-	var items := _locker.items()
+	var items: Dictionary = _locker.items()
 	if storing:
 		amount = mini(amount, mini(int(Game.inventory.get(id, 0)), _locker.capacity() - _locker.stored_total()))
 		items[id] = int(items.get(id, 0)) + amount

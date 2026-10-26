@@ -14,6 +14,8 @@ var _base_scale := Vector3.ZERO
 
 func setup(type: String, mesh: Mesh, material: Material, shape: Shape3D, shape_offset: Vector3) -> void:
 	resource_type = type
+	# Los drones buscan en este grupo los depósitos que recoger.
+	add_to_group("deposit")
 	var mesh_instance := MeshInstance3D.new()
 	mesh_instance.mesh = mesh
 	mesh_instance.material_override = material
@@ -36,6 +38,17 @@ func harvest(multiplier: int) -> int:
 	var taken := amount * multiplier
 	amount = 0
 	_deplete()
+	return taken
+
+
+## Lo que se llevan los drones: hasta "count" unidades, sin taladro.
+func take(count: int) -> int:
+	var taken := mini(count, amount)
+	if taken <= 0:
+		return 0
+	amount -= taken
+	if amount <= 0:
+		_deplete()
 	return taken
 
 

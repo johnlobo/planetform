@@ -1,6 +1,10 @@
 extends StaticBody3D
 ## Construcción colocada por el jugador (panel, generador, calentador,
-## taquilla, musgo, bomba de agua, pantallas...).
+## taquilla, musgo, bomba de agua, pantallas, punto de recarga, estación de
+## drones...).
+
+const Drone := preload("res://scripts/drone.gd")
+const DRONE_COUNT := 2
 
 var kind := "panel"
 ## Entrada de Game.machines que se guarda con la partida. En las taquillas
@@ -16,6 +20,10 @@ var _rotor: Node3D
 var _piston: Node3D
 # Segundos acumulados de producción (agua de la bomba, verduras del bancal).
 var _produce_time := 0.0
+# Drones de la estación (solo cuando está colocada, no en la silueta).
+var _drones: Array[Node3D] = []
+# Luz del punto de recarga: se enciende con energía.
+var _charge_light: StandardMaterial3D
 # Frutos del bancal: se ve uno por cada verdura lista para recoger.
 var _fruits: Array[Node3D] = []
 # El musgo nace pequeño y crece hasta su tamaño en GROW_TIME segundos.
@@ -220,6 +228,74 @@ func setup(machine_kind: String) -> void:
 			_screen_value = _screen_label("", Vector2(0, 0.07), 64, HORIZONTAL_ALIGNMENT_CENTER, color)
 			_add_bar(metric, Vector2(-0.4, -0.13), 0.8, 0.08)
 			_screen_rate = _screen_label("", Vector2(0, -0.27), 22, HORIZONTAL_ALIGNMENT_CENTER)
+		"cargador":
+			# Poste con un enchufe y una luz verde, sobre una losa donde aparcar.
+			var slab := BoxMesh.new()
+			slab.size = Vector3(1.0, 0.12, 1.0)
+			mesh_instance.mesh = slab
+			mesh_instance.position.y = 0.06
+			material.albedo_color = Color(0.45, 0.47, 0.5)
+			shape.size = Vector3(0.7, 1.8, 0.7)
+			var post_material := StandardMaterial3D.new()
+			post_material.albedo_color = Color(0.9, 0.9, 0.86)
+			_detail(Vector3(0.4, 1.6, 0.4), Vector3(0, 0.9, 0), post_material)
+			var stripe := StandardMaterial3D.new()
+			stripe.albedo_color = Color(0.95, 0.55, 0.15)
+			_detail(Vector3(0.42, 0.08, 0.42), Vector3(0, 1.45, 0), stripe)
+			var dark := StandardMaterial3D.new()
+			dark.albedo_color = Color(0.2, 0.22, 0.25)
+			_detail(Vector3(0.2, 0.25, 0.08), Vector3(0, 1.05, -0.22), dark)
+			_charge_light = StandardMaterial3D.new()
+			_charge_light.albedo_color = Color(0.3, 1.0, 0.45)
+			_charge_light.emission_enabled = true
+			_charge_light.emission = Color(0.15, 0.8, 0.3)
+			_detail(Vector3(0.25, 0.08, 0.05), Vector3(0, 1.3, -0.21), _charge_light)
+			# Cable enrollado en un lado.
+			var coil := TorusMesh.new()
+			coil.inner_radius = 0.1
+			coil.outer_radius = 0.16
+			coil.rings = 8
+			coil.ring_segments = 4
+			var part := _mesh(coil, Vector3(0.24, 0.8, 0), dark)
+			part.rotation_degrees.z = 90.0
+		"drones":
+			# Caseta con dos plataformas de aterrizaje y una antena.
+			var hut := BoxMesh.new()
+			hut.size = Vector3(1.6, 1.1, 1.2)
+			mesh_instance.mesh = hut
+			mesh_instance.position.y = 0.55
+			material.albedo_color = Color(0.55, 0.6, 0.66)
+			material.metallic = 0.3
+			shape.size = Vector3(2.8, 1.4, 1.4)
+			var pad_material := StandardMaterial3D.new()
+			pad_material.albedo_color = Color(0.25, 0.27, 0.3)
+			var mark := StandardMaterial3D.new()
+			mark.albedo_color = Color(0.95, 0.55, 0.15)
+			for sx in [-1.0, 1.0]:
+				var pad := CylinderMesh.new()
+				pad.top_radius = 0.6
+				pad.bottom_radius = 0.6
+				pad.height = 0.1
+				pad.radial_segments = 8
+				_mesh(pad, Vector3(sx * 0.95, 1.15, 0), pad_material)
+				_detail(Vector3(0.5, 0.02, 0.08), Vector3(sx * 0.95, 1.21, 0), mark)
+				_detail(Vector3(0.08, 0.02, 0.5), Vector3(sx * 0.95, 1.21, 0), mark)
+				_detail(Vector3(0.1, 0.5, 0.1), Vector3(sx * 0.95, 0.85, 0), pad_material)
+			var antenna := CylinderMesh.new()
+			antenna.top_radius = 0.02
+			antenna.bottom_radius = 0.04
+			antenna.height = 1.0
+			antenna.radial_segments = 4
+			_mesh(antenna, Vector3(0, 1.6, 0.4), pad_material)
+			var glow := StandardMaterial3D.new()
+			glow.albedo_color = Color(0.4, 1.0, 0.6)
+			glow.emission_enabled = true
+			glow.emission = Color(0.2, 0.9, 0.4)
+			_detail(Vector3(0.6, 0.12, 0.02), Vector3(0, 0.8, -0.61), glow)
+			# Drones de muestra posados, para la silueta y el icono; los de
+			# verdad salen al colocarla.
+			for sx in [-1.0, 1.0]:
+				_detail(Vector3(0.5, 0.18, 0.5), Vector3(sx * 0.95, 1.32, 0), material).set_meta("sample_drone", true)
 		"taquilla":
 			var cabinet := BoxMesh.new()
 			cabinet.size = Vector3(0.8, 1.9, 0.6)
@@ -331,6 +407,20 @@ func setup(machine_kind: String) -> void:
 	footprint = shape.size
 	if Game.MACHINES[kind].has("display"):
 		update_screen()
+
+
+func _ready() -> void:
+	# Los drones solo salen de una estación colocada (con su entrada de partida).
+	if Game.MACHINES[kind].get("gathers", false) and not data.is_empty() and _drones.is_empty():
+		for child in get_children():
+			if child.has_meta("sample_drone"):
+				child.visible = false
+		for i in DRONE_COUNT:
+			var drone := Drone.new()
+			drone.station = self
+			drone.dock = Vector3((-1.0 if i == 0 else 1.0) * 0.95, 1.32, 0)
+			add_child(drone)
+			_drones.append(drone)
 
 
 ## Puertas, rendijas, tiradores y una franja naranja en el frente (-Z).
@@ -500,6 +590,12 @@ func is_storage() -> bool:
 	return Game.MACHINES[kind].has("storage")
 
 
+## En la taquilla se guarda de todo; de la bomba, el bancal y la estación de
+## drones solo se saca lo que traen.
+func accepts_items() -> bool:
+	return not Game.MACHINES[kind].has("produces") and not Game.MACHINES[kind].get("gathers", false)
+
+
 func capacity() -> int:
 	return int(Game.MACHINES[kind].get("storage", 0))
 
@@ -538,6 +634,8 @@ func _process(delta: float) -> void:
 		_spinner.rotate_z(delta * 2.0)
 	if _rotor and Game.energy_ratio() > 0.0:
 		_rotor.rotate_y(delta * 4.0 * Game.energy_ratio())
+	if _charge_light:
+		_charge_light.emission_energy_multiplier = 1.0 if Game.energy_ratio() > 0.0 else 0.1
 	if _bars.size() > 0:
 		_screen_time -= delta
 		if _screen_time <= 0.0:
@@ -574,8 +672,13 @@ func get_hint() -> String:
 	var recipe_name: String = Game.RECIPES[kind]["name"]
 	if is_storage():
 		var state := ""
-		if Game.MACHINES[kind].has("produces") and Game.energy_ratio() <= 0.0:
+		if (Game.MACHINES[kind].has("produces") or not _drones.is_empty()) and Game.energy_ratio() <= 0.0:
 			state = " · sin energía"
+		elif not _drones.is_empty():
+			var parts := PackedStringArray()
+			for drone in _drones:
+				parts.append(drone.status_text())
+			state = " · drones: %s" % ", ".join(parts)
 		return "%s · %d / %d%s · E o clic para abrir" % [recipe_name, stored_total(), capacity(), state]
 	var display := String(Game.MACHINES[kind].get("display", ""))
 	if display == "index":
@@ -591,4 +694,6 @@ func get_hint() -> String:
 		return "%s · da %d de energía" % [recipe_name, energy]
 	if Game.energy_ratio() <= 0.0:
 		return "%s · sin energía" % recipe_name
+	if kind == "cargador":
+		return "%s · aparca el róver al lado para cargarlo" % recipe_name
 	return "%s · funcionando al %d %%" % [recipe_name, roundi(Game.energy_ratio() * 100.0)]
