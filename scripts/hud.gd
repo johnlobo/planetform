@@ -180,7 +180,7 @@ func _process(delta: float) -> void:
 	elif _open_panel == locker_panel and _locker.stored_total() != _locker_total:
 		# La bomba y el bancal siguen produciendo con el panel abierto.
 		_refresh_locker()
-	planet_label.text = Game.clock_text() + ("  (noche)" if Game.is_night() else "") + "\nEtapa: %s\nOxígeno: %.1f %%\nTemperatura: %.1f %%\nPresión: %.1f %%\nBiomasa: %.1f %%\nÍndice: %.1f %%\nEnergía: %d producida / %d necesaria" % [
+	planet_label.text = Game.clock_text() + ("  (noche)" if Game.is_night() else "") + ("  (lloviendo)" if Game.is_raining() else "") + "\nEtapa: %s\nOxígeno: %.1f %%\nTemperatura: %.1f %%\nPresión: %.1f %%\nBiomasa: %.1f %%\nÍndice: %.1f %%\nEnergía: %d producida / %d necesaria" % [
 		Game.STAGES[Game.stage]["name"], Game.oxygen, Game.temperature, Game.pressure, Game.biomass,
 		Game.terraform_index(), Game.energy_supply(), Game.energy_demand()]
 	if message_timer > 0.0:
@@ -434,6 +434,12 @@ func _refresh_build_grid() -> void:
 			tip += "\nMaletero pequeño y batería\nSe carga en un punto de recarga"
 		if Game.MACHINES.get(id, {}).get("gathers", false):
 			tip += "\nSus drones recogen de los depósitos cercanos"
+		if Game.MACHINES.get(id, {}).get("rain", false):
+			tip += "\nRecoge agua cuando llueve, sin energía"
+		if Game.MACHINES.get(id, {}).get("pollinates", false):
+			tip += "\nLos bancales cercanos dan verduras más rápido"
+		if Game.MACHINES.get(id, {}).get("plant", false):
+			tip += "\nCon lluvia crece el doble de rápido"
 		if recipe["kind"] == "building":
 			var energy := int(Game.MACHINES[id]["energy"])
 			if energy > 0:

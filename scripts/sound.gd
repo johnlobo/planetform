@@ -13,6 +13,9 @@ const GUST_MIN := 8.0
 const GUST_MAX := 16.0
 const GUST_PAUSE_MIN := 25.0
 const GUST_PAUSE_MAX := 60.0
+const RAIN_LENGTH := 4.0 # segundos del bucle de lluvia
+const RAIN_DB := -18.0 # volumen con la lluvia más fuerte, al aire libre
+const RAIN_SHELTER_DB := -8.0 # cuánto baja dentro de la base
 
 var _sounds := {}
 var _players: Array[AudioStreamPlayer] = []
@@ -23,6 +26,7 @@ var _gust_time := 0.0
 var _gust_length := 0.0
 var _gust_pause := 0.0
 var _wind_level := 0.0 # volumen lineal actual del viento
+var _rain: AudioStreamPlayer
 
 
 func _ready() -> void:
@@ -51,6 +55,11 @@ func _ready() -> void:
 	_gust_pause = _rng.randf_range(5.0, 15.0)
 	add_child(_wind)
 	_wind.play()
+	_rain = AudioStreamPlayer.new()
+	_rain.stream = _rain_loop()
+	_rain.volume_db = linear_to_db(0.0001)
+	add_child(_rain)
+	_rain.play()
 
 
 func _process(delta: float) -> void:
@@ -73,11 +82,15 @@ func _process(delta: float) -> void:
 				target = peak * pow(sin(PI * _gust_time / _gust_length), 2.0)
 	_wind_level = move_toward(_wind_level, target, 0.05 * delta)
 	_wind.volume_db = linear_to_db(maxf(_wind_level, 0.0001))
+	var rain := 0.0 if get_tree().paused else Game.rain()
+	var rain_db := RAIN_DB + (RAIN_SHELTER_DB if Game.sheltered else 0.0)
+	_rain.volume_db = linear_to_db(maxf(rain * db_to_linear(rain_db), 0.0001))
 
 
 func _exit_tree() -> void:
 	# Si el viento sigue sonando al cerrar, Godot avisa de recursos sin liberar.
 	_wind.stop()
+	_rain.stop()
 
 
 ## Reproduce un efecto por nombre; pitch_jitter varía el tono para que no canse.
@@ -177,6 +190,33 @@ func _wind_loop() -> AudioStreamWAV:
 	for i in n:
 		hiss = lerpf(hiss, _rng.randf_range(-1.0, 1.0), 0.15)
 		raw[i] = hiss * 2.0
+	var fade := int(0.5 * MIX_RATE)
+	var samples := PackedFloat32Array()
+	samples.resize(n - fade)
+	for i in n - fade:
+		samples[i] = raw[i]
+		if i < fade:
+			var k := float(i) / fade
+			samples[i] = raw[i] * k + raw[n - fade + i] * (1.0 - k)
+	return _make_stream(samples, true)
+
+
+## Lluvia: siseo agudo continuo con gotas sueltas que golpean. El final se
+## mezcla con el principio para que el bucle no se note.
+func _rain_loop() -> AudioStreamWAV:
+	var n := int(RAIN_LENGTH * MIX_RATE)
+	var raw := PackedFloat32Array()
+	raw.resize(n)
+	var last := 0.0
+	var drop := 0.0
+	for i in n:
+		# Ruido blanco menos su versión suavizada: solo quedan los agudos.
+		var white := _rng.randf_range(-1.0, 1.0)
+		last = lerpf(last, white, 0.3)
+		if _rng.randf() < 0.002:
+			drop = _rng.randf_range(0.4, 1.0)
+		drop *= 0.995
+		raw[i] = (white - last) * 0.5 + white * drop * 0.6
 	var fade := int(0.5 * MIX_RATE)
 	var samples := PackedFloat32Array()
 	samples.resize(n - fade)
