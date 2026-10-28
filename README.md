@@ -22,21 +22,23 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 | Espacio | Saltar (mantenido en el aire, con propulsores: volar un poco) |
 | Clic izquierdo | Usar la herramienta (y capturar el ratón) |
 | 1 / 2 / 3 o rueda del ratón | Cambiar el modo de la herramienta: recoger, construir o desmontar |
-| Tab o C | Abrir y cerrar el menú de crafteo (herramientas y botellas) |
+| Tab o C | Abrir y cerrar el menú de fabricar y construir (vuelve a la última pestaña usada) |
 | E | Abrir la taquilla, la bomba de agua, el bancal o la estación de drones que miras; subir al róver y bajar de él |
 | W S / A D (en el róver) | Acelerar y frenar o marcha atrás / girar; Espacio es el freno |
 | Q | Usar una botella de oxígeno |
 | F | Comer (verduras, raciones o guiso) |
 | H | Abrir y cerrar el menú de pausa |
-| Esc | Cerrar el menú de crafteo o soltar el ratón |
+| Esc | Cerrar el menú o soltar el ratón |
 | R / rueda del ratón | Girar lo que estás colocando |
 | Clic derecho o Esc | Cancelar la colocación |
 
 ## Cómo se juega
 
+- **Fabricar y construir** comparten un menú con dos pestañas y un icono por receta. En **Fabricar** están las herramientas, las botellas, las semillas y el guiso: van al inventario y el menú sigue abierto para hacer más. En **Construir** está lo que se coloca en el mundo: al elegirlo, la herramienta pasa a modo construir y empieza la colocación. Lo que aún no se ha desbloqueado sale oscuro con el nombre de su etapa.
+
 - La **herramienta** de la mano tiene tres modos y su cabezal cambia con cada uno:
   - **Recoger** (taladro naranja): clic en un recurso para recogerlo o en una taquilla para abrirla.
-  - **Construir** (emisor azul): abre el menú de construcción, con un icono por pieza. Al elegir una se coloca con la silueta verde o roja.
+  - **Construir** (emisor azul): abre el menú en la pestaña Construir. Al elegir una pieza se coloca con la silueta verde o roja.
   - **Desmontar** (pinzas rojas): lo que apuntas se tiñe de rojo; con un clic se quita y te devuelve todos sus materiales.
     Una pared con puerta o ventana quita solo esa pieza; un módulo hay que vaciarlo antes de desmontarlo.
 - Las **taquillas** guardan hasta 50 recursos. Al desmontar una, lo guardado vuelve a la mochila.
@@ -57,9 +59,9 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
   los lagos van subiendo poco a poco en los valles. Con el agua por encima de las rodillas andas más despacio.
 - **Agua:** se recoge con un clic en la superficie de un lago (no se agota) o con una **bomba de agua** (gasta 1 de energía,
   saca 1 de agua cada 6 s, guarda hasta 20; se abre con E para sacarla).
-- **Propulsores** (Primera neblina, se craftean con Tab): con Espacio pulsado en el aire empujan hacia arriba unos 3 s
+- **Propulsores** (Primera neblina, se fabrican con Tab): con Espacio pulsado en el aire empujan hacia arriba unos 3 s
   (unos 20 m de subida) y dejan ir más rápido; se rellenan solos al pisar el suelo. Sirven para subir a las montañas.
-- **Róver de exploración** (Primera neblina): se coloca con el menú de construcción. E para subir y bajar.
+- **Róver de exploración** (Primera neblina): se coloca desde la pestaña Construir. E para subir y bajar.
   Tiene un **maletero** de 20 unidades (clic en modo recoger) y una **batería** que se gasta al acelerar (unos 2 minutos
   de acelerador). Se recarga aparcado a menos de 6 m de un **punto de recarga**, que gasta 1 de energía.
   Al desmontarlo, lo del maletero vuelve a la mochila.
@@ -71,7 +73,7 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 - **Comida y hambre:** la barra de **comida** se vacía en 12 minutos (tres días), también dentro de la base. Con **F** comes:
   primero verduras (+20), luego raciones (+40) y luego guiso (+100). Si la barra llega a 0 tienes 60 segundos para comer o te desmayas.
   Empiezas con 5 **raciones de emergencia**. El **bancal de cultivo** da 1 de **verduras** cada 20 s con toda la energía (guarda hasta 12;
-  se ven los frutos rojos y se abre con E para sacarlas). Con 3 verduras + 1 agua se craftea un **guiso**, que llena la barra entera.
+  se ven los frutos rojos y se abre con E para sacarlas). Con 3 verduras + 1 agua se fabrica un **guiso**, que llena la barra entera.
 - **Día y noche:** un día dura 4 minutos. De noche tu **calor** baja (menos cuanto más caliente está el planeta)
   salvo si estás a menos de 8 m de un calentador con energía; de día se recupera. Si el calor llega a 0, gastas oxígeno el triple de rápido.
 - **Colocar:** lo que se construye no aparece solo: una silueta sigue tu mirada, verde donde se puede construir y roja donde no
@@ -135,7 +137,8 @@ scripts/terrain.gd     Terreno de 2 km por trozos: montañas, rocas, árboles y 
 scripts/player.gd      Jugador en primera persona y recolección
 scripts/resource_node.gd  Depósitos de recursos que reaparecen
 scripts/machine.gd     Máquinas, taquillas y pantallas
-scripts/hud.gd         Interfaz y menú de crafteo
+scripts/hud.gd         Interfaz y menú de fabricar y construir
+scripts/icons.gd       Iconos del menú, dibujados en el juego
 ```
 
 El mundo se genera desde código para que el prototipo sea fácil de leer y modificar sin el editor.

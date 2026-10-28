@@ -96,7 +96,7 @@ func _open() -> void:
 	visible = true
 	get_tree().paused = true
 	Game.in_title = _is_title
-	# Primero se avisa al HUD: al cerrar el crafteo vuelve a capturar el ratón.
+	# Primero se avisa al HUD: al cerrar su menú vuelve a capturar el ratón.
 	opened.emit()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_continue_button.grab_focus()

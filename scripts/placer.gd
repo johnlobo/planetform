@@ -115,7 +115,7 @@ func _input(event: InputEvent) -> void:
 func _physics_process(_delta: float) -> void:
 	if _ghost == null:
 		return
-	# Abrir el crafteo o morir cancela la colocación.
+	# Abrir el menú o morir cancela la colocación.
 	if Game.ui_open or Game.dead:
 		cancel()
 		return
