@@ -28,10 +28,11 @@ func setup(type: String, mesh: Mesh, material: Material, shape: Shape3D, shape_o
 
 
 func get_hint() -> String:
-	return "%s (%d) · clic para recoger" % [Game.RESOURCE_NAMES[resource_type], amount]
+	return "%s (%d) · mantén clic para recoger" % [Game.RESOURCE_NAMES[resource_type], amount]
 
 
-# Un clic recoge el depósito entero; el taladro mejorado multiplica lo recogido.
+## Vacía el depósito entero cuando se llena la barra de minar; el taladro
+## multiplica lo recogido.
 func harvest(multiplier: int) -> int:
 	if amount <= 0:
 		return 0

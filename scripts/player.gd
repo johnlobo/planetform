@@ -38,6 +38,10 @@ var _air_time := 0.0
 var rover: Rover
 var _drive_yaw := 0.0
 var _jetting := false
+# Minando: se pulsó el ratón sobre un depósito y aún no se ha soltado. La
+# barra avanza mientras se siga apuntando al mismo.
+var _mining := false
+var _mine_target: Object
 
 
 func _ready() -> void:
@@ -161,7 +165,35 @@ func _physics_process(delta: float) -> void:
 	if global_position.y < -50.0:
 		global_position = spawn_point
 
+	_update_mining(delta)
 	_update_hint()
+
+
+## Con el ratón pulsado sobre un depósito se llena la barra; al llenarse se
+## recoge entero. Cuánto tarda y cuánto da depende del taladro.
+func _update_mining(delta: float) -> void:
+	var target := _target()
+	if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or Game.ui_open or Game.placing \
+			or Game.tool_mode != "recoger" or Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		_mining = false
+	if not _mining or target == null or not target.has_method("harvest"):
+		_mine_target = null
+		Game.mine_progress = -1.0
+		return
+	if target != _mine_target:
+		_mine_target = target
+		Game.mine_progress = 0.0
+	var drill := Game.drill()
+	Game.mine_progress += delta / float(drill["time"])
+	if Game.mine_progress < 1.0:
+		return
+	Game.mine_progress = 0.0
+	var amount: int = target.harvest(int(drill["yield"]))
+	if amount > 0:
+		Sfx.play("recoger", 0.05)
+		Game.tool_used.emit(ray.get_collision_point())
+		Game.add_item(target.resource_type, amount)
+		Game.message.emit("+%d %s" % [amount, Game.RESOURCE_NAMES[target.resource_type]])
 
 
 ## Los propulsores empujan mientras se mantiene Espacio en el aire y se
@@ -303,12 +335,7 @@ func _interact() -> void:
 			if (target is Machine or target is Rover) and target.is_storage():
 				Game.locker_requested.emit(target)
 			elif target and target.has_method("harvest"):
-				var amount: int = target.harvest(2 if Game.has_drill else 1)
-				if amount > 0:
-					Sfx.play("recoger", 0.05)
-					Game.tool_used.emit(ray.get_collision_point())
-					Game.add_item(target.resource_type, amount)
-					Game.message.emit("+%d %s" % [amount, Game.RESOURCE_NAMES[target.resource_type]])
+				_mining = true # sigue en _update_mining mientras no se suelte
 
 
 ## Tiñe de rojo lo que se va a desmontar.

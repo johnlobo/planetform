@@ -8,9 +8,9 @@ var resource_type := "agua"
 
 
 func get_hint() -> String:
-	return "Agua · clic para recoger"
+	return "Agua · mantén clic para recoger"
 
 
-# El taladro mejorado multiplica lo recogido, como en los depósitos.
+# El taladro multiplica lo recogido, como en los depósitos.
 func harvest(multiplier: int) -> int:
 	return AMOUNT * multiplier
