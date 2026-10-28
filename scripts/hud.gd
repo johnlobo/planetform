@@ -1,13 +1,16 @@
 extends CanvasLayer
 ## Interfaz: inventario, estado del planeta, oxígeno del jugador, modo de la
-## herramienta y los paneles de crafteo, construcción y taquilla.
+## herramienta, el menú de fabricar y construir y el panel de la taquilla.
 
 const Icons := preload("res://scripts/icons.gd")
 const Machine := preload("res://scripts/machine.gd")
 
 const MESSAGE_TIME := 4.0
-const ICON_SIZE := 96
-const BUILD_COLUMNS := 8
+const ICON_SIZE := 72
+# Casilla del menú: con 9 columnas caben las 26 construcciones en 3 filas.
+const CELL_SIZE := Vector2(ICON_SIZE + 46, ICON_SIZE + 78)
+const MENU_COLUMNS := 9
+const TAB_NAMES := {"fabricar": "Fabricar", "construir": "Construir"}
 const MODE_COLORS := {
 	"recoger": Color(1.0, 0.85, 0.55),
 	"construir": Color(0.55, 0.88, 1.0),
@@ -24,10 +27,10 @@ var jetpack_title: Label
 var jetpack_bar: ProgressBar
 var hint_label: Label
 var message_label: Label
-var craft_panel: PanelContainer
-var craft_list: VBoxContainer
-var build_panel: PanelContainer
-var build_grid: GridContainer
+var menu_panel: PanelContainer
+var menu_grid: GridContainer
+var menu_scroll: ScrollContainer
+var tab_buttons := {}
 var locker_panel: PanelContainer
 var locker_title: Label
 var locker_inventory: VBoxContainer
@@ -35,8 +38,11 @@ var locker_contents: VBoxContainer
 var crosshair: Label
 var mode_labels := {}
 var icons: Icons
-# Panel abierto ahora (crafteo, construcción o taquilla), o null.
+# Panel abierto ahora (el menú o la taquilla), o null.
 var _open_panel: Control
+# Pestaña del menú: "fabricar" o "construir". Tab vuelve a la última usada.
+var _tab := "fabricar"
+var _driving := false
 # La taquilla, máquina o maletero abierto: una Machine o un róver.
 var _locker: Node3D
 var _locker_total := 0
@@ -72,7 +78,7 @@ func _ready() -> void:
 	help.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	help.offset_left = 16
 	help.offset_bottom = -16
-	help.text = "WASD mover · Espacio saltar · Clic usar herramienta · 1 2 3 o rueda cambiar modo\nTab craftear · E abrir taquilla o subir al róver · Q usar botella · F comer · R girar · H menú · Esc soltar ratón"
+	help.text = "WASD mover · Espacio saltar · Clic usar herramienta · 1 2 3 o rueda cambiar modo\nTab fabricar y construir · E abrir taquilla o subir al róver · Q usar botella · F comer · R girar · H menú · Esc soltar ratón"
 
 	_build_mode_bar()
 
@@ -118,20 +124,20 @@ func _ready() -> void:
 	oxygen_box.add_child(jetpack_bar)
 	add_child(oxygen_box)
 
-	_build_craft_panel()
-	_build_build_panel()
+	_build_menu_panel()
 	_build_locker_panel()
 	_build_death_screen()
 	icons = Icons.new()
 	add_child(icons)
 	icons.finished.connect(_on_icons_finished)
-	icons.render(_build_kinds())
+	icons.render(Game.RECIPES.keys())
 
 	Game.inventory_changed.connect(_refresh_inventory)
 	Game.message.connect(_show_message)
 	Game.player_died.connect(_on_player_died)
 	Game.tool_changed.connect(_on_tool_changed)
 	Game.build_menu_requested.connect(_on_build_menu_requested)
+	Game.driving_changed.connect(func(driving: bool) -> void: _driving = driving)
 	Game.locker_requested.connect(_on_locker_requested)
 	_on_tool_changed(Game.tool_mode)
 	_refresh_inventory()
@@ -152,7 +158,7 @@ func _input(event: InputEvent) -> void:
 			_close_panel()
 			get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("craft") and not get_tree().paused:
-		_show_panel(craft_panel)
+		_show_menu(_tab)
 		get_viewport().set_input_as_handled()
 
 
@@ -201,12 +207,46 @@ func _label(preset: int, offset: Vector2) -> Label:
 	return label
 
 
-func _build_craft_panel() -> void:
-	var parts := _panel("Crafteo (Tab o Esc para cerrar)")
-	craft_panel = parts[0]
-	craft_panel.custom_minimum_size = Vector2(460, 0)
-	craft_list = VBoxContainer.new()
-	parts[1].add_child(craft_list)
+## Un solo menú con dos pestañas: Fabricar (herramientas, botellas y comida,
+## que van al inventario) y Construir (lo que se coloca en el mundo).
+func _build_menu_panel() -> void:
+	var parts := _panel("")
+	menu_panel = parts[0]
+	var title: Label = parts[2]
+	title.visible = false
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 6)
+	parts[1].add_child(tabs)
+	parts[1].move_child(tabs, 0)
+	var group := ButtonGroup.new()
+	for tab in TAB_NAMES:
+		var button := Button.new()
+		button.text = TAB_NAMES[tab]
+		button.toggle_mode = true
+		button.button_group = group
+		button.focus_mode = Control.FOCUS_NONE
+		button.custom_minimum_size = Vector2(140, 36)
+		button.add_theme_color_override("font_pressed_color", MODE_COLORS["construir"])
+		button.add_theme_color_override("font_hover_pressed_color", MODE_COLORS["construir"])
+		button.pressed.connect(_select_tab.bind(tab))
+		tabs.add_child(button)
+		tab_buttons[tab] = button
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tabs.add_child(spacer)
+	var close_hint := Label.new()
+	close_hint.text = "Tab, clic derecho o Esc para cerrar"
+	close_hint.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
+	tabs.add_child(close_hint)
+	menu_grid = GridContainer.new()
+	menu_grid.columns = MENU_COLUMNS
+	menu_grid.add_theme_constant_override("h_separation", 8)
+	menu_grid.add_theme_constant_override("v_separation", 8)
+	# Las dos pestañas miden lo mismo; si no cabe todo, se desplaza con la rueda.
+	menu_scroll = ScrollContainer.new()
+	menu_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	menu_scroll.add_child(menu_grid)
+	parts[1].add_child(menu_scroll)
 
 
 ## Los tres modos de la herramienta abajo en el centro; el activo resalta.
@@ -238,14 +278,17 @@ func _on_tool_changed(mode: String) -> void:
 		var active: bool = id == mode
 		label.add_theme_font_size_override("font_size", 22 if active else 16)
 		label.add_theme_color_override("font_color", MODE_COLORS[id] if active else Color(0.75, 0.75, 0.75, 0.7))
-	if mode != "construir" and _open_panel == build_panel:
-		_close_panel()
 
 
 ## Panel centrado con título; devuelve el contenedor donde va su contenido.
 func _panel(title_text: String) -> Array:
 	var panel := PanelContainer.new()
 	panel.visible = false
+	# Fondo casi opaco para que no se lea el HUD de detrás.
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.11, 0.12, 0.14, 0.95)
+	style.set_corner_radius_all(6)
+	panel.add_theme_stylebox_override("panel", style)
 	var center := CenterContainer.new()
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -262,16 +305,6 @@ func _panel(title_text: String) -> Array:
 	title.text = title_text
 	box.add_child(title)
 	return [panel, box, title]
-
-
-func _build_build_panel() -> void:
-	var parts := _panel("Construir (clic derecho, Tab o Esc para cerrar)")
-	build_panel = parts[0]
-	build_grid = GridContainer.new()
-	build_grid.columns = BUILD_COLUMNS
-	build_grid.add_theme_constant_override("h_separation", 8)
-	build_grid.add_theme_constant_override("v_separation", 8)
-	parts[1].add_child(build_grid)
 
 
 func _build_locker_panel() -> void:
@@ -353,10 +386,8 @@ func _close_panel() -> void:
 
 
 func _refresh_panel() -> void:
-	if _open_panel == craft_panel:
-		_refresh_craft_list()
-	elif _open_panel == build_panel:
-		_refresh_build_grid()
+	if _open_panel == menu_panel:
+		_refresh_menu_grid()
 	elif _open_panel == locker_panel:
 		_refresh_locker()
 
@@ -376,82 +407,59 @@ func _refresh_inventory() -> void:
 		_refresh_panel()
 
 
-func _refresh_craft_list() -> void:
-	for child in craft_list.get_children():
-		child.queue_free()
-	# Lo que se coloca en el mundo está en el menú de construcción.
-	for id in Game.RECIPES:
-		if Game.is_placeable(id):
-			continue
-		var recipe: Dictionary = Game.RECIPES[id]
-		var text := "%s · %s" % [recipe["name"], Game.cost_text(recipe["cost"])]
-		if not Game.is_unlocked(id):
-			text = "%s (se desbloquea en %s)" % [recipe["name"], Game.STAGES[int(recipe["stage"])]["name"]]
-		var button := Button.new()
-		button.text = text
-		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		button.disabled = not Game.can_craft(id)
-		button.pressed.connect(_on_craft_pressed.bind(id))
-		craft_list.add_child(button)
+func _show_menu(tab: String) -> void:
+	_tab = tab
+	tab_buttons[tab].button_pressed = true
+	var rows := ceili(maxf(_tab_kinds("fabricar").size(), _tab_kinds("construir").size()) / float(MENU_COLUMNS))
+	var width := MENU_COLUMNS * (CELL_SIZE.x + 8)
+	var height := minf(rows * (CELL_SIZE.y + 8), get_viewport().get_visible_rect().size.y - 140)
+	menu_scroll.custom_minimum_size = Vector2(width, height)
+	_show_panel(menu_panel)
 
 
-func _on_craft_pressed(id: String) -> void:
-	Game.craft(id)
+func _select_tab(tab: String) -> void:
+	if tab != _tab:
+		Sfx.play("clic")
+	_tab = tab
+	tab_buttons[tab].button_pressed = true
+	menu_scroll.scroll_vertical = 0
+	_refresh_menu_grid()
 
 
-func _build_kinds() -> Array:
+## Lo que sale en una pestaña, en el orden de las recetas.
+func _tab_kinds(tab: String) -> Array:
 	var kinds := []
 	for id in Game.RECIPES:
-		if Game.is_placeable(id):
+		if Game.is_placeable(id) == (tab == "construir"):
 			kinds.append(id)
 	return kinds
 
 
 func _on_build_menu_requested() -> void:
 	if not get_tree().paused and not Game.dead:
-		_show_panel(build_panel)
+		_show_menu("construir")
 
 
 func _on_icons_finished() -> void:
-	if _open_panel == build_panel:
-		_refresh_build_grid()
+	if _open_panel == menu_panel:
+		_refresh_menu_grid()
 
 
-## Una casilla por pieza: icono, nombre y coste. Las que faltan por
-## desbloquear o no se pueden pagar salen apagadas.
-func _refresh_build_grid() -> void:
-	for child in build_grid.get_children():
+## Una casilla por receta de la pestaña: icono, nombre y coste. Las que faltan
+## por desbloquear o no se pueden pagar salen apagadas.
+func _refresh_menu_grid() -> void:
+	for child in menu_grid.get_children():
 		child.queue_free()
-	for id in _build_kinds():
+	for id in _tab_kinds(_tab):
 		var recipe: Dictionary = Game.RECIPES[id]
 		var unlocked := Game.is_unlocked(id)
+		var owned := _owned(id)
 		var button := Button.new()
-		button.custom_minimum_size = Vector2(ICON_SIZE + 40, ICON_SIZE + 64)
-		button.disabled = not Game.can_craft(id)
-		button.pressed.connect(_on_build_pressed.bind(id))
-		var tip := "%s\n%s" % [recipe["name"], Game.cost_text(recipe["cost"])]
-		if recipe["kind"] == "vehicle":
-			tip += "\nMaletero pequeño y batería\nSe carga en un punto de recarga"
-		if Game.MACHINES.get(id, {}).get("gathers", false):
-			tip += "\nSus drones recogen de los depósitos cercanos"
-		if Game.MACHINES.get(id, {}).get("rain", false):
-			tip += "\nRecoge agua cuando llueve, sin energía"
-		if Game.MACHINES.get(id, {}).get("pollinates", false):
-			tip += "\nLos bancales cercanos dan verduras más rápido"
-		if Game.MACHINES.get(id, {}).get("plant", false):
-			tip += "\nCon lluvia crece el doble de rápido"
-		if recipe["kind"] == "building":
-			var energy := int(Game.MACHINES[id]["energy"])
-			if energy > 0:
-				tip += "\nDa %d de energía" % energy
-			elif energy < 0:
-				tip += "\nGasta %d de energía" % -energy
-			for metric in Game.METRICS:
-				if float(Game.MACHINES[id].get(metric, 0)) > 0.0:
-					tip += "\nSube: %s" % String(Game.METRIC_NAMES[metric]).to_lower()
-			if Game.MACHINES[id].has("display"):
-				tip += "\nMuestra cómo va el planeta"
-		button.tooltip_text = tip
+		button.custom_minimum_size = CELL_SIZE
+		button.focus_mode = Control.FOCUS_NONE
+		button.disabled = not Game.can_craft(id) or (_driving and _tab == "construir")
+		button.pressed.connect(_on_item_pressed.bind(id))
+		button.tooltip_text = _tooltip(id)
 		var box := VBoxContainer.new()
 		box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		box.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -467,15 +475,89 @@ func _refresh_build_grid() -> void:
 		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		if not unlocked:
 			icon.modulate = Color(0.2, 0.2, 0.2)
-		elif button.disabled:
+		elif button.disabled and not owned:
 			icon.modulate = Color(1, 1, 1, 0.45)
 		box.add_child(icon)
 		var name_label := _small_label(recipe["name"], 13)
 		box.add_child(name_label)
-		var cost_label := _small_label(Game.cost_text(recipe["cost"]) if unlocked else Game.STAGES[int(recipe["stage"])]["name"], 11)
-		cost_label.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75) if unlocked else Color(0.9, 0.6, 0.3))
+		var cost_text: String = Game.cost_text(recipe["cost"])
+		var cost_color := Color(0.75, 0.75, 0.75)
+		if not unlocked:
+			cost_text = Game.STAGES[int(recipe["stage"])]["name"]
+			cost_color = Color(0.9, 0.6, 0.3)
+		elif owned:
+			cost_text = "Ya lo tienes"
+			cost_color = Color(0.55, 0.9, 0.55)
+		var cost_label := _small_label(cost_text, 11)
+		cost_label.add_theme_color_override("font_color", cost_color)
 		box.add_child(cost_label)
-		build_grid.add_child(button)
+		var count := int(Game.inventory.get(id, 0))
+		if recipe["kind"] == "consumable" and count > 0:
+			# Cuántas lleva ya, en la esquina de arriba a la derecha.
+			var count_label := Label.new()
+			count_label.text = "x%d" % count
+			count_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+			count_label.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+			count_label.offset_right = -6
+			count_label.offset_top = 2
+			count_label.add_theme_font_size_override("font_size", 13)
+			count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			button.add_child(count_label)
+		menu_grid.add_child(button)
+
+
+## Las herramientas se fabrican una sola vez.
+func _owned(id: String) -> bool:
+	match id:
+		"taladro":
+			return Game.has_drill
+		"tanque":
+			return Game.has_tank
+		"jetpack":
+			return Game.has_jetpack
+	return false
+
+
+func _tooltip(id: String) -> String:
+	var recipe: Dictionary = Game.RECIPES[id]
+	var tip := "%s\n%s" % [recipe["name"], Game.cost_text(recipe["cost"])]
+	match id:
+		"taladro":
+			tip += "\nRecoges el doble"
+		"tanque":
+			tip += "\nTu reserva de oxígeno sube a %d" % int(Game.TANK_O2_MAX)
+		"jetpack":
+			tip += "\nMantén Espacio en el aire para volar un poco"
+		"botella":
+			tip += "\nQ para respirar de ella"
+		"semillas":
+			tip += "\nSirven para plantar musgo, bancales y árboles"
+		"guiso":
+			tip += "\nF para comer: llena la barra entera"
+	if _driving and Game.is_placeable(id):
+		tip += "\nBájate del róver para construir"
+	if recipe["kind"] == "vehicle":
+		tip += "\nMaletero pequeño y batería\nSe carga en un punto de recarga"
+	if Game.MACHINES.get(id, {}).get("gathers", false):
+		tip += "\nSus drones recogen de los depósitos cercanos"
+	if Game.MACHINES.get(id, {}).get("rain", false):
+		tip += "\nRecoge agua cuando llueve, sin energía"
+	if Game.MACHINES.get(id, {}).get("pollinates", false):
+		tip += "\nLos bancales cercanos dan verduras más rápido"
+	if Game.MACHINES.get(id, {}).get("plant", false):
+		tip += "\nCon lluvia crece el doble de rápido"
+	if recipe["kind"] == "building":
+		var energy := int(Game.MACHINES[id]["energy"])
+		if energy > 0:
+			tip += "\nDa %d de energía" % energy
+		elif energy < 0:
+			tip += "\nGasta %d de energía" % -energy
+		for metric in Game.METRICS:
+			if float(Game.MACHINES[id].get(metric, 0)) > 0.0:
+				tip += "\nSube: %s" % String(Game.METRIC_NAMES[metric]).to_lower()
+		if Game.MACHINES[id].has("display"):
+			tip += "\nMuestra cómo va el planeta"
+	return tip
 
 
 func _small_label(text: String, size: int) -> Label:
@@ -483,14 +565,19 @@ func _small_label(text: String, size: int) -> Label:
 	label.text = text
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.custom_minimum_size.x = ICON_SIZE + 32
+	label.custom_minimum_size.x = CELL_SIZE.x - 8
 	label.add_theme_font_size_override("font_size", size)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return label
 
 
-func _on_build_pressed(id: String) -> void:
-	_close_panel()
+## Lo fabricado va al inventario y el menú sigue abierto para hacer más;
+## lo que se construye cierra el menú y empieza a colocarse.
+func _on_item_pressed(id: String) -> void:
+	if Game.is_placeable(id):
+		_close_panel()
+		# Colocar solo funciona en modo construir (al cambiar de modo se cancela).
+		Game.set_tool_mode("construir")
 	Game.craft(id)
 
 

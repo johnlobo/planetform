@@ -663,7 +663,7 @@ func _on_stage_reached(stage: int) -> void:
 func _explain_deshielo() -> void:
 	for text in [
 			"El hielo empieza a derretirse y se forman lagos en los valles.",
-			"Recoge agua en la orilla y craftea semillas de musgo (Tab).",
+			"Recoge agua en la orilla y fabrica semillas de musgo (Tab).",
 			"Planta musgo fuera y monta bancales en la base: la biomasa sube el índice."]:
 		await get_tree().create_timer(Hud.MESSAGE_TIME + 0.5).timeout
 		Game.message.emit(text)
