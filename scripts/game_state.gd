@@ -30,7 +30,10 @@ const RESOURCE_NAMES := {
 
 # "stage" es la etapa mínima de terraformación que desbloquea la receta.
 const RECIPES := {
+	# Taladros: cada uno sustituye al anterior y hace falta tener el anterior.
 	"taladro": {"name": "Taladro mejorado", "cost": {"hierro": 3, "silicio": 1}, "kind": "tool", "stage": 0},
+	"taladro_termico": {"name": "Taladro térmico", "cost": {"hierro": 4, "cobre": 3, "silicio": 2}, "kind": "tool", "stage": 2},
+	"taladro_plasma": {"name": "Taladro de plasma", "cost": {"hierro": 5, "cobre": 4, "silicio": 3, "agua": 2}, "kind": "tool", "stage": 3},
 	"panel": {"name": "Panel solar", "cost": {"hierro": 2, "silicio": 2}, "kind": "building", "stage": 0},
 	"generador": {"name": "Generador de oxígeno", "cost": {"hierro": 3, "hielo": 2}, "kind": "building", "stage": 0},
 	"calentador": {"name": "Calentador", "cost": {"hierro": 4, "silicio": 1}, "kind": "building", "stage": 1},
@@ -128,6 +131,16 @@ const FOODS := {"verdura": 20.0, "racion": 40.0, "guiso": 100.0}
 const TOOL_MODES := ["recoger", "construir", "desmontar"]
 const TOOL_NAMES := {"recoger": "Recoger", "construir": "Construir", "desmontar": "Desmontar"}
 
+# Niveles del taladro de la herramienta. "time" son los segundos que hay que
+# mantener pulsado el ratón para sacar una unidad del depósito, y "yield"
+# cuántas unidades da cada una. El nivel 0 es el que se tiene al empezar.
+const DRILLS := [
+	{"id": "", "name": "Taladro básico", "time": 1.0, "yield": 1, "color": Color(0.95, 0.55, 0.15)},
+	{"id": "taladro", "name": "Taladro mejorado", "time": 0.6, "yield": 2, "color": Color(0.75, 0.78, 0.82)},
+	{"id": "taladro_termico", "name": "Taladro térmico", "time": 0.35, "yield": 2, "color": Color(0.95, 0.3, 0.15)},
+	{"id": "taladro_plasma", "name": "Taladro de plasma", "time": 0.2, "yield": 3, "color": Color(0.55, 0.4, 1.0)},
+]
+
 const STAGES := [
 	{"name": "Roca muerta", "threshold": 0.0},
 	{"name": "Primera neblina", "threshold": 20.0},
@@ -181,7 +194,7 @@ const AUTOSAVE_TIME := 15.0
 
 var inventory := {"hierro": 0, "silicio": 0, "hielo": 0, "cobre": 0, "agua": 0, "semillas": 0, "botella": 0,
 		"racion": START_RATIONS, "verdura": 0, "guiso": 0}
-var has_drill := false
+var drill_level := 0 # índice en DRILLS
 var has_tank := false
 var has_jetpack := false
 # Combustible de los propulsores, de 0 a JETPACK_FUEL_MAX.
@@ -215,6 +228,8 @@ var ui_open := false
 # true mientras el jugador elige dónde colocar una construcción.
 var placing := false
 var hint := ""
+# De 0 a 1 mientras se mantiene pulsado el ratón sobre un depósito; -1 si no.
+var mine_progress := -1.0
 var tool_mode := "recoger"
 # Construcciones colocadas: [{"kind", "x", "y", "z", "rot"}], para el guardado.
 var machines: Array = []
@@ -510,7 +525,10 @@ func is_unlocked(id: String) -> bool:
 func can_craft(id: String) -> bool:
 	if not is_unlocked(id):
 		return false
-	if (id == "taladro" and has_drill) or (id == "tanque" and has_tank) or (id == "jetpack" and has_jetpack):
+	var drill := drill_index(id)
+	if drill > 0 and drill_level != drill - 1:
+		return false # ya lo tiene, o le falta el taladro anterior
+	if (id == "tanque" and has_tank) or (id == "jetpack" and has_jetpack):
 		return false
 	var cost: Dictionary = RECIPES[id]["cost"]
 	for res in cost:
@@ -540,13 +558,26 @@ func craft(id: String) -> bool:
 				has_jetpack = true
 				jetpack_fuel = JETPACK_FUEL_MAX
 				message.emit("Propulsores: mantén Espacio en el aire para volar un poco.")
-			else:
-				has_drill = true
-				message.emit("Taladro mejorado: ahora recoges el doble.")
+			elif drill_index(id) > 0:
+				drill_level = drill_index(id)
+				var drill: Dictionary = DRILLS[drill_level]
+				message.emit("%s: recoges x%d y %.1f veces más rápido." % [drill["name"], drill["yield"], float(DRILLS[0]["time"]) / float(drill["time"])])
 		"consumable":
 			inventory[id] = int(inventory.get(id, 0)) + 1
 	inventory_changed.emit()
 	return true
+
+
+## Nivel de taladro que da la receta id, o 0 si no es un taladro.
+func drill_index(id: String) -> int:
+	for i in range(1, DRILLS.size()):
+		if DRILLS[i]["id"] == id:
+			return i
+	return 0
+
+
+func drill() -> Dictionary:
+	return DRILLS[drill_level]
 
 
 func is_placeable(id: String) -> bool:
@@ -664,7 +695,7 @@ func save_game() -> void:
 	var data := {
 		"version": SAVE_VERSION,
 		"inventory": inventory,
-		"has_drill": has_drill,
+		"drill_level": drill_level,
 		"has_tank": has_tank,
 		"has_jetpack": has_jetpack,
 		"oxygen": oxygen,
@@ -712,7 +743,8 @@ func load_game() -> bool:
 	var saved_inventory: Dictionary = data.get("inventory", {})
 	for id in inventory:
 		inventory[id] = int(saved_inventory.get(id, 0))
-	has_drill = bool(data.get("has_drill", false))
+	# Las partidas de antes de los niveles solo guardaban si había taladro mejorado.
+	drill_level = clampi(int(data.get("drill_level", 1 if data.get("has_drill", false) else 0)), 0, DRILLS.size() - 1)
 	has_tank = bool(data.get("has_tank", false))
 	has_jetpack = bool(data.get("has_jetpack", false))
 	oxygen = float(data.get("oxygen", 0.0))
@@ -770,7 +802,7 @@ func _reset_state() -> void:
 	for id in inventory:
 		inventory[id] = 0
 	inventory["racion"] = START_RATIONS
-	has_drill = false
+	drill_level = 0
 	has_tank = false
 	has_jetpack = false
 	jetpack_fuel = JETPACK_FUEL_MAX

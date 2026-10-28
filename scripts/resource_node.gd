@@ -28,17 +28,18 @@ func setup(type: String, mesh: Mesh, material: Material, shape: Shape3D, shape_o
 
 
 func get_hint() -> String:
-	return "%s (%d) · clic para recoger" % [Game.RESOURCE_NAMES[resource_type], amount]
+	return "%s (%d) · mantén clic para recoger" % [Game.RESOURCE_NAMES[resource_type], amount]
 
 
-# Un clic recoge el depósito entero; el taladro mejorado multiplica lo recogido.
+## Saca una unidad del depósito (cuando se llena la barra de minar); el
+## taladro decide cuánto vale cada unidad.
 func harvest(multiplier: int) -> int:
 	if amount <= 0:
 		return 0
-	var taken := amount * multiplier
-	amount = 0
-	_deplete()
-	return taken
+	amount -= 1
+	if amount <= 0:
+		_deplete()
+	return multiplier
 
 
 ## Lo que se llevan los drones: hasta "count" unidades, sin taladro.

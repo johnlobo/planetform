@@ -36,6 +36,7 @@ var locker_title: Label
 var locker_inventory: VBoxContainer
 var locker_contents: VBoxContainer
 var crosshair: Label
+var mine_bar: ProgressBar
 var mode_labels := {}
 var icons: Icons
 # Panel abierto ahora (el menú o la taquilla), o null.
@@ -65,7 +66,25 @@ func _ready() -> void:
 	crosshair = _label(Control.PRESET_CENTER, Vector2(-4, -12))
 	crosshair.text = "+"
 
-	hint_label = _label(Control.PRESET_CENTER, Vector2(-160, 16))
+	# Barra de minar, justo debajo de la mira.
+	mine_bar = ProgressBar.new()
+	mine_bar.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	mine_bar.offset_left = -40
+	mine_bar.offset_right = 40
+	mine_bar.offset_top = 14
+	mine_bar.offset_bottom = 22
+	mine_bar.max_value = 1.0
+	mine_bar.show_percentage = false
+	mine_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = MODE_COLORS["recoger"]
+	mine_bar.add_theme_stylebox_override("fill", fill)
+	var back := StyleBoxFlat.new()
+	back.bg_color = Color(0, 0, 0, 0.5)
+	mine_bar.add_theme_stylebox_override("background", back)
+	add_child(mine_bar)
+
+	hint_label = _label(Control.PRESET_CENTER, Vector2(-160, 28))
 	hint_label.custom_minimum_size.x = 320
 	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
@@ -78,7 +97,7 @@ func _ready() -> void:
 	help.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	help.offset_left = 16
 	help.offset_bottom = -16
-	help.text = "WASD mover · Espacio saltar · Clic usar herramienta · 1 2 3 o rueda cambiar modo\nTab fabricar y construir · E abrir taquilla o subir al róver · Q usar botella · F comer · R girar · H menú · Esc soltar ratón"
+	help.text = "WASD mover · Espacio saltar · Clic usar herramienta (mantén para minar) · 1 2 3 o rueda cambiar modo\nTab fabricar y construir · E abrir taquilla o subir al róver · Q usar botella · F comer · R girar · H menú · Esc soltar ratón"
 
 	_build_mode_bar()
 
@@ -181,6 +200,8 @@ func _process(delta: float) -> void:
 	jetpack_bar.visible = Game.has_jetpack
 	jetpack_bar.value = Game.jetpack_fuel
 	hint_label.text = "" if Game.ui_open else Game.hint
+	mine_bar.visible = Game.mine_progress >= 0.0 and not Game.ui_open
+	mine_bar.value = maxf(Game.mine_progress, 0.0)
 	if _open_panel == locker_panel and not is_instance_valid(_locker):
 		_close_panel()
 	elif _open_panel == locker_panel and _locker.stored_total() != _locker_total:
@@ -396,8 +417,8 @@ func _refresh_inventory() -> void:
 	var lines := PackedStringArray()
 	for id in Game.inventory:
 		lines.append("%s: %d" % [Game.RESOURCE_NAMES[id], Game.inventory[id]])
-	if Game.has_drill:
-		lines.append("Taladro mejorado")
+	if Game.drill_level > 0:
+		lines.append(Game.drill()["name"])
 	if Game.has_tank:
 		lines.append("Tanque de oxígeno")
 	if Game.has_jetpack:
@@ -509,8 +530,8 @@ func _refresh_menu_grid() -> void:
 ## Las herramientas se fabrican una sola vez.
 func _owned(id: String) -> bool:
 	match id:
-		"taladro":
-			return Game.has_drill
+		"taladro", "taladro_termico", "taladro_plasma":
+			return Game.drill_level >= Game.drill_index(id)
 		"tanque":
 			return Game.has_tank
 		"jetpack":
@@ -522,8 +543,12 @@ func _tooltip(id: String) -> String:
 	var recipe: Dictionary = Game.RECIPES[id]
 	var tip := "%s\n%s" % [recipe["name"], Game.cost_text(recipe["cost"])]
 	match id:
-		"taladro":
-			tip += "\nRecoges el doble"
+		"taladro", "taladro_termico", "taladro_plasma":
+			var drill: Dictionary = Game.DRILLS[Game.drill_index(id)]
+			tip += "\nUna unidad cada %.2f s (ahora %.2f s), x%d por unidad" % [drill["time"], Game.drill()["time"], drill["yield"]]
+			var before := Game.drill_index(id) - 1
+			if Game.drill_level < before:
+				tip += "\nAntes necesitas el %s" % Game.DRILLS[before]["name"]
 		"tanque":
 			tip += "\nTu reserva de oxígeno sube a %d" % int(Game.TANK_O2_MAX)
 		"jetpack":

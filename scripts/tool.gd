@@ -25,6 +25,8 @@ var _glow_material := StandardMaterial3D.new()
 var _light: OmniLight3D
 var _tip: Node3D
 var _drill: Node3D
+var _bit_material: StandardMaterial3D # color según el nivel del taladro
+var _bit_level := -1
 var _hologram: Node3D
 var _beam: MeshInstance3D
 var _beam_material := StandardMaterial3D.new()
@@ -57,6 +59,14 @@ func _process(delta: float) -> void:
 	if _switch == null or not _switch.is_running():
 		var sway := Vector3(cos(_bob * 0.5) * BOB_AMOUNT, absf(sin(_bob)) * BOB_AMOUNT, 0.0)
 		position = REST + sway + Vector3(0, 0, _kick * 0.05)
+		if Game.mine_progress >= 0.0:
+			# Minando, la mano tiembla un poco.
+			position += Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), 0.0) * 0.0015
+	if _bit_level != Game.drill_level:
+		_bit_level = Game.drill_level
+		_bit_material.albedo_color = Game.drill()["color"]
+	if Game.mine_progress >= 0.0:
+		_spin = maxf(_spin, 30.0) # y el taladro gira deprisa
 	_spin = move_toward(_spin, 4.0, delta * 30.0)
 	_drill.rotate_z(_spin * delta)
 	_hologram.rotate_y(delta * 1.5)
@@ -152,7 +162,8 @@ func _build() -> void:
 	_drill = Node3D.new()
 	_drill.position = Vector3(0, 0, -0.15)
 	drill_head.add_child(_drill)
-	_part(_drill, _cylinder(0.0, 0.022, 0.08, Vector3.FORWARD, 5), Vector3(0, 0, -0.04), cover)
+	_bit_material = _material(Game.DRILLS[0]["color"], 0.6)
+	_part(_drill, _cylinder(0.0, 0.022, 0.08, Vector3.FORWARD, 5), Vector3(0, 0, -0.04), _bit_material)
 
 	# Construir: anillo emisor con un cubo holográfico delante.
 	var builder := _head("construir")

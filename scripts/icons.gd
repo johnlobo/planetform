@@ -113,10 +113,12 @@ func _item(kind: String) -> Node3D:
 	var metal := _material(Color(0.62, 0.65, 0.7), 0.6)
 	var dark := _material(Color(0.22, 0.24, 0.27), 0.3)
 	match kind:
-		"taladro":
+		"taladro", "taladro_termico", "taladro_plasma":
 			var body := _part(root, _cylinder(0.22, 0.22, 0.9, 6), _material(Color(0.95, 0.55, 0.15), 0.1), Vector3(0, 0.3, 0))
 			body.rotation_degrees.z = 90.0
-			var bit := _part(root, _cylinder(0.12, 0.0, 0.7, 5), metal, Vector3(-0.8, 0.3, 0))
+			# La broca lleva el color de su nivel, el mismo que en la mano.
+			var bit_color: Color = Game.DRILLS[Game.drill_index(kind)]["color"]
+			var bit := _part(root, _cylinder(0.12, 0.0, 0.7, 5), _material(bit_color, 0.6), Vector3(-0.8, 0.3, 0))
 			bit.rotation_degrees.z = 90.0
 			var grip := _part(root, _box(Vector3(0.22, 0.6, 0.24)), dark, Vector3(0.25, -0.1, 0))
 			grip.rotation_degrees.z = -12.0
