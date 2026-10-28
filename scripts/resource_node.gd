@@ -31,15 +31,15 @@ func get_hint() -> String:
 	return "%s (%d) · mantén clic para recoger" % [Game.RESOURCE_NAMES[resource_type], amount]
 
 
-## Saca una unidad del depósito (cuando se llena la barra de minar); el
-## taladro decide cuánto vale cada unidad.
+## Vacía el depósito entero cuando se llena la barra de minar; el taladro
+## multiplica lo recogido.
 func harvest(multiplier: int) -> int:
 	if amount <= 0:
 		return 0
-	amount -= 1
-	if amount <= 0:
-		_deplete()
-	return multiplier
+	var taken := amount * multiplier
+	amount = 0
+	_deplete()
+	return taken
 
 
 ## Lo que se llevan los drones: hasta "count" unidades, sin taladro.

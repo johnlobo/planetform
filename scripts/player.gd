@@ -169,8 +169,8 @@ func _physics_process(delta: float) -> void:
 	_update_hint()
 
 
-## Con el ratón pulsado sobre un depósito se llena la barra; al llenarse sale
-## una unidad y vuelve a empezar. Cuánto tarda y cuánto da depende del taladro.
+## Con el ratón pulsado sobre un depósito se llena la barra; al llenarse se
+## recoge entero. Cuánto tarda y cuánto da depende del taladro.
 func _update_mining(delta: float) -> void:
 	var target := _target()
 	if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or Game.ui_open or Game.placing \

@@ -545,7 +545,7 @@ func _tooltip(id: String) -> String:
 	match id:
 		"taladro", "taladro_termico", "taladro_plasma":
 			var drill: Dictionary = Game.DRILLS[Game.drill_index(id)]
-			tip += "\nUna unidad cada %.2f s (ahora %.2f s), x%d por unidad" % [drill["time"], Game.drill()["time"], drill["yield"]]
+			tip += "\nVacía un depósito en %.1f s (ahora %.1f s) y recoges x%d" % [drill["time"], Game.drill()["time"], drill["yield"]]
 			var before := Game.drill_index(id) - 1
 			if Game.drill_level < before:
 				tip += "\nAntes necesitas el %s" % Game.DRILLS[before]["name"]

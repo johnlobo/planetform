@@ -37,16 +37,16 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 - **Fabricar y construir** comparten un menú con dos pestañas y un icono por receta. En **Fabricar** están las herramientas, las botellas, las semillas y el guiso: van al inventario y el menú sigue abierto para hacer más. En **Construir** está lo que se coloca en el mundo: al elegirlo, la herramienta pasa a modo construir y empieza la colocación. Lo que aún no se ha desbloqueado sale oscuro con el nombre de su etapa.
 
 - La **herramienta** de la mano tiene tres modos y su cabezal cambia con cada uno:
-  - **Recoger** (taladro): mantén pulsado el clic sobre un recurso para minarlo (una barra bajo la mira marca cuánto falta para
-    sacar cada unidad; un depósito tiene 3) o haz clic en una taquilla para abrirla.
+  - **Recoger** (taladro): mantén pulsado el clic sobre un recurso hasta que se llene la barra bajo la mira y lo recoges entero
+    (un depósito tiene 3), o haz clic en una taquilla para abrirla.
 - **Taladros:** cada uno se fabrica en la pestaña Fabricar, necesita el anterior y cambia el color de la broca.
 
-  | Taladro | Etapa | Coste | Segundos por unidad | Recursos por unidad |
+  | Taladro | Etapa | Coste | Segundos de barra | Recoges |
   |---|---|---|---|---|
-  | Básico (naranja) | al empezar | — | 1,0 | 1 |
-  | Mejorado (plateado) | Roca muerta | 3 hierro, 1 silicio | 0,6 | 2 |
-  | Térmico (rojo) | Deshielo | 4 hierro, 3 cobre, 2 silicio | 0,35 | 2 |
-  | De plasma (violeta) | Lluvias | 5 hierro, 4 cobre, 3 silicio, 2 agua | 0,2 | 3 |
+  | Básico (naranja) | al empezar | — | 2,0 | x1 (3 por depósito) |
+  | Mejorado (plateado) | Roca muerta | 3 hierro, 1 silicio | 1,2 | x2 (6) |
+  | Térmico (rojo) | Deshielo | 4 hierro, 3 cobre, 2 silicio | 0,7 | x2 (6) |
+  | De plasma (violeta) | Lluvias | 5 hierro, 4 cobre, 3 silicio, 2 agua | 0,4 | x3 (9) |
   - **Construir** (emisor azul): abre el menú en la pestaña Construir. Al elegir una pieza se coloca con la silueta verde o roja.
   - **Desmontar** (pinzas rojas): lo que apuntas se tiñe de rojo; con un clic se quita y te devuelve todos sus materiales.
     Una pared con puerta o ventana quita solo esa pieza; un módulo hay que vaciarlo antes de desmontarlo.
