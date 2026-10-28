@@ -135,10 +135,10 @@ const TOOL_NAMES := {"recoger": "Recoger", "construir": "Construir", "desmontar"
 # mantener pulsado el ratón para vaciar un depósito, y "yield" por cuánto se
 # multiplica lo que tenía. El nivel 0 es el que se tiene al empezar.
 const DRILLS := [
-	{"id": "", "name": "Taladro básico", "time": 2.0, "yield": 1, "color": Color(0.95, 0.55, 0.15)},
-	{"id": "taladro", "name": "Taladro mejorado", "time": 1.2, "yield": 2, "color": Color(0.75, 0.78, 0.82)},
-	{"id": "taladro_termico", "name": "Taladro térmico", "time": 0.7, "yield": 2, "color": Color(0.95, 0.3, 0.15)},
-	{"id": "taladro_plasma", "name": "Taladro de plasma", "time": 0.4, "yield": 3, "color": Color(0.55, 0.4, 1.0)},
+	{"id": "", "name": "Taladro básico", "time": 1.0, "yield": 1, "color": Color(0.95, 0.55, 0.15)},
+	{"id": "taladro", "name": "Taladro mejorado", "time": 0.7, "yield": 2, "color": Color(0.75, 0.78, 0.82)},
+	{"id": "taladro_termico", "name": "Taladro térmico", "time": 0.45, "yield": 2, "color": Color(0.95, 0.3, 0.15)},
+	{"id": "taladro_plasma", "name": "Taladro de plasma", "time": 0.25, "yield": 3, "color": Color(0.55, 0.4, 1.0)},
 ]
 
 const STAGES := [

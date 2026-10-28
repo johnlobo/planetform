@@ -43,10 +43,10 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 
   | Taladro | Etapa | Coste | Segundos de barra | Recoges |
   |---|---|---|---|---|
-  | Básico (naranja) | al empezar | — | 2,0 | x1 (3 por depósito) |
-  | Mejorado (plateado) | Roca muerta | 3 hierro, 1 silicio | 1,2 | x2 (6) |
-  | Térmico (rojo) | Deshielo | 4 hierro, 3 cobre, 2 silicio | 0,7 | x2 (6) |
-  | De plasma (violeta) | Lluvias | 5 hierro, 4 cobre, 3 silicio, 2 agua | 0,4 | x3 (9) |
+  | Básico (naranja) | al empezar | — | 1,0 | x1 (3 por depósito) |
+  | Mejorado (plateado) | Roca muerta | 3 hierro, 1 silicio | 0,7 | x2 (6) |
+  | Térmico (rojo) | Deshielo | 4 hierro, 3 cobre, 2 silicio | 0,45 | x2 (6) |
+  | De plasma (violeta) | Lluvias | 5 hierro, 4 cobre, 3 silicio, 2 agua | 0,25 | x3 (9) |
   - **Construir** (emisor azul): abre el menú en la pestaña Construir. Al elegir una pieza se coloca con la silueta verde o roja.
   - **Desmontar** (pinzas rojas): lo que apuntas se tiñe de rojo; con un clic se quita y te devuelve todos sus materiales.
     Una pared con puerta o ventana quita solo esa pieza; un módulo hay que vaciarlo antes de desmontarlo.
