@@ -95,6 +95,13 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
   mire hacia él (R cambia a la siguiente posición que encaje); el módulo deja un hueco del ancho del pasillo. Las bocas libres se
   cierran con una pared a la que se le puede poner una puerta o una ventana pequeña; las paredes laterales del cuadrado del
   centro también admiten puerta o ventana.
+- **En altura:** mirando el techo de un módulo de hábitat se coloca otro encima (otra planta, sin zócalo). Junto a una planta
+  de arriba se pueden encajar pasillos y módulos aunque queden en el aire, como un puente. Un módulo con otro encima no se
+  desmonta hasta quitar el de arriba.
+- **Escalera** (2 hierro): se coloca mirando un módulo de hábitat y va siempre en su esquina, con una trampilla en el techo que
+  sale al tejado o a la planta de arriba. En la escalera, W o Espacio suben y S baja.
+- **Techos:** en el techo de los módulos se pueden poner paneles solares, turbinas y otras máquinas de fuera (no plantas).
+  Un módulo con algo en el techo no se desmonta hasta quitarlo. Los paneles solares van ahora sobre un soporte.
 - **Luces de la base:** las de los módulos y pasillos solo se encienden si se produce energía o hay batería cargada.
 - **Cuestas:** si el terreno sobresale por encima del suelo de un módulo, se excava al colocarlo (hasta 3 m); por debajo, el zócalo
   llega hasta 3,5 m. Las máquinas en una cuesta de más de 0,7 m se ponen a la altura de su esquina más baja y también se excava

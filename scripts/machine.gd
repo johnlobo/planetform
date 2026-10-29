@@ -62,13 +62,32 @@ func setup(machine_kind: String) -> void:
 	var shape := BoxShape3D.new()
 	match kind:
 		"panel":
+			# Placa inclinada sobre un soporte: un poste con dos patas y una losa.
 			var box := BoxMesh.new()
-			box.size = Vector3(2.0, 0.1, 1.4)
+			box.size = Vector3(2.0, 0.08, 1.4)
 			mesh_instance.mesh = box
-			mesh_instance.position.y = 0.8
+			mesh_instance.position.y = 1.35
 			mesh_instance.rotation_degrees.x = -25.0
 			material.albedo_color = Color(0.15, 0.25, 0.6)
-			shape.size = Vector3(2.0, 1.2, 1.4)
+			material.metallic = 0.3
+			material.roughness = 0.35
+			shape.size = Vector3(2.0, 1.8, 1.4)
+			var steel := StandardMaterial3D.new()
+			steel.albedo_color = Color(0.6, 0.63, 0.66)
+			steel.metallic = 0.5
+			_detail(Vector3(0.9, 0.08, 0.6), Vector3(0, 0.04, 0), steel)
+			_detail(Vector3(0.12, 1.3, 0.12), Vector3(0, 0.68, 0), steel)
+			for sx in [-0.5, 0.5]:
+				var strut := _detail(Vector3(0.06, 0.9, 0.06), Vector3(sx * 0.35, 0.5, 0), steel)
+				strut.rotation_degrees.z = sx * 50.0
+			# Marco bajo la placa, girado con ella.
+			var frame := _detail(Vector3(2.04, 0.05, 1.44), Vector3(0, 1.3, 0.02), steel)
+			frame.rotation_degrees.x = -25.0
+			var lines := StandardMaterial3D.new()
+			lines.albedo_color = Color(0.5, 0.6, 0.8)
+			for k in [-0.5, 0.0, 0.5]:
+				var line := _detail(Vector3(0.02, 0.09, 1.4), Vector3(k, 1.35, 0), lines)
+				line.rotation_degrees.x = -25.0
 		"generador":
 			var cylinder := CylinderMesh.new()
 			cylinder.top_radius = 0.5

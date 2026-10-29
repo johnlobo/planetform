@@ -22,6 +22,9 @@ const JET_MAX_RISE := 6.0
 const JET_SPEED_FACTOR := 1.6
 const JET_DRAIN := 33.0 # combustible por segundo: el depósito dura 3 s
 const JET_REFILL := 20.0 # por segundo con los pies en el suelo
+# Escaleras: W o Espacio suben, S baja; dentro del hueco se va hacia el centro.
+const CLIMB_SPEED := 2.5
+const CLIMB_PULL := 4.0
 
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var camera: Camera3D
@@ -138,6 +141,11 @@ func _physics_process(delta: float) -> void:
 	if rover:
 		_ride()
 		return
+	var ladder: Node3D = world.ladder_at(global_position + Vector3(0, 0.3, 0))
+	if ladder:
+		_climb(ladder)
+		_update_hint()
+		return
 	if not is_on_floor():
 		velocity.y -= gravity * delta
 
@@ -169,6 +177,29 @@ func _physics_process(delta: float) -> void:
 
 	_update_mining(delta)
 	_update_hint()
+
+
+## En la escalera no hay gravedad: se sube y se baja con W/Espacio y S, y
+## dentro del hueco se va hacia el centro para pasar por la trampilla.
+func _climb(ladder: Node3D) -> void:
+	var input_dir := Vector2.ZERO
+	var up := false
+	if not Game.ui_open:
+		input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+		up = Input.is_action_pressed("jump")
+	var climb := -input_dir.y
+	if up:
+		climb = 1.0
+	velocity.y = climb * CLIMB_SPEED
+	var direction := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
+	velocity.x = direction.x * SPEED * 0.5
+	velocity.z = direction.z * SPEED * 0.5
+	var local := ladder.to_local(global_position)
+	if local.y < ladder.STOREY:
+		var to_center: Vector3 = ladder.hatch_center() - global_position
+		velocity.x += to_center.x * CLIMB_PULL
+		velocity.z += to_center.z * CLIMB_PULL
+	move_and_slide()
 
 
 ## Con el ratón pulsado sobre un depósito se llena la barra; al llenarse se

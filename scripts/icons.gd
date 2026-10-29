@@ -85,8 +85,15 @@ func _model(kind: String) -> Node3D:
 			module.setup({"kind": kind}, true)
 			return module
 		"fitting":
-			# Solo la pared delantera de un módulo con la pieza puesta.
 			var module := Module.new()
+			if kind == "escalera":
+				# Solo la escalera.
+				module.setup({"ladder": true}, true)
+				for child in module.get_children():
+					if not child.has_meta("ladder"):
+						child.visible = false
+				return module
+			# Solo la pared delantera de un módulo con la pieza puesta.
 			module.setup({"sides": [kind, "pared", "pared", "pared"]}, true)
 			for child in module.get_children():
 				if not (child.has_meta("side") and int(child.get_meta("side")) == 0):

@@ -34,6 +34,8 @@ var _target_module: Module
 var _target_side := -1
 # Terreno que hay que rebajar al colocar: {"xform", "size", "level"} o {}.
 var _dig := {}
+# Planta del módulo que se va a colocar (0 en el suelo).
+var _level := 0
 # Recurso del depósito sobre el que va el extractor.
 var _deposit_type := ""
 var _green := _ghost_material(Color(0.2, 1.0, 0.35, 0.45))
@@ -164,6 +166,11 @@ func _place_machine(point: Vector3, hit: Dictionary) -> String:
 		return "va fuera, al aire libre"
 	if on_floor and _mode == "vehicle":
 		return "el róver va fuera de la base"
+	# En el techo de un módulo va lo de fuera (paneles, turbinas...) salvo las
+	# plantas, que necesitan tierra.
+	var on_roof: bool = hit and hit["collider"].is_in_group("base_roof") and hit["normal"].y > 0.7
+	if on_roof and (Game.MACHINES.get(_kind, {}).get("plant", false) or _mode == "vehicle"):
+		return "no se puede poner en el techo"
 	var exclude := [terrain.get_rid()]
 	# El extractor se encaja encima del depósito que se mira.
 	var deposit: Node3D = null
@@ -173,7 +180,7 @@ func _place_machine(point: Vector3, hit: Dictionary) -> String:
 			point = deposit.global_position
 			exclude.append(deposit.get_rid())
 			_deposit_type = String(deposit.get("resource_type"))
-	if not on_floor:
+	if not on_floor and not on_roof:
 		point.y = world.surface_height(point.x, point.z)
 	var rot := player.rotation.y + _rotation
 	_ghost.global_position = point
@@ -189,8 +196,8 @@ func _place_machine(point: Vector3, hit: Dictionary) -> String:
 		return common
 	var size: Vector3 = _ghost.get("footprint")
 	var basis := Basis(Vector3.UP, rot)
-	if on_floor:
-		# El suelo de la base es plano: solo hace falta que no choque.
+	if on_floor or on_roof:
+		# El suelo y el techo de la base son planos: solo hace falta que no choque.
 		exclude.append(hit["collider"].get_rid())
 	else:
 		var heights := _corner_heights(point, basis, size)
@@ -214,15 +221,19 @@ func _place_machine(point: Vector3, hit: Dictionary) -> String:
 ## suelto sobre el terreno.
 func _place_module(point: Vector3, hit: Dictionary) -> String:
 	var looked: Module = _module_of(hit["collider"]) if hit else null
+	# Mirando el techo de un módulo, se pone otro encima.
+	if looked and hit["collider"].is_in_group("base_roof"):
+		return _place_on_top(looked)
 	if looked == null:
 		# Suelto queda delante del punto que se mira, no encima del jugador.
 		var ahead := -player.global_transform.basis.z
 		point += Vector3(ahead.x, 0, ahead.z).normalized() * Module.SIZE / 2.0
-	var snap := _snap_cell(point, looked != null)
+	var snap := _snap_cell(point, looked)
 	var xform: Transform3D
 	var exclude := [terrain.get_rid()]
 	if not snap.is_empty():
 		xform = snap["xform"]
+		_set_ghost_level(int(snap["level"]))
 		_ghost.global_transform = xform
 		# Las paredes y rampas de los módulos vecinos no cuentan como estorbo.
 		for m in world.modules:
@@ -234,9 +245,11 @@ func _place_module(point: Vector3, hit: Dictionary) -> String:
 		# Lo que sobresale se excava al colocarlo.
 		if heights.y > xform.origin.y + DIG_MAX:
 			return "el terreno es demasiado alto"
-		if heights.x < xform.origin.y - Module.SKIRT:
+		# Una planta de arriba puede quedar en el aire, como un puente.
+		if _level == 0 and heights.x < xform.origin.y - Module.SKIRT:
 			return "el terreno es demasiado bajo"
 	else:
+		_set_ghost_level(0)
 		point.y = world.surface_height(point.x, point.z)
 		var basis := Basis(Vector3.UP, player.rotation.y + _rotation)
 		var heights := _corner_heights(point, basis, Vector3(Module.SIZE, 0, Module.SIZE))
@@ -263,11 +276,13 @@ func _place_module(point: Vector3, hit: Dictionary) -> String:
 
 ## Hueco libre junto a un módulo más cercano al punto: {"xform"} con la
 ## posición y el giro del módulo vecino, o {} si no hay ninguno a menos de
-## SNAP_DISTANCE. Con always se acepta aunque esté más lejos (se mira un módulo).
-func _snap_cell(point: Vector3, always: bool) -> Dictionary:
+## SNAP_DISTANCE. Si se mira un módulo (looked), solo vale un hueco junto a
+## él, aunque esté más lejos: así se elige planta cuando hay varias.
+func _snap_cell(point: Vector3, looked: Module) -> Dictionary:
 	var best := {}
 	var best_distance := INF
-	for m in world.modules:
+	var always := looked != null
+	for m in ([looked] if looked else world.modules):
 		for i in 4:
 			if m.open[i] != "" or not m.has_port(i):
 				continue
@@ -283,7 +298,7 @@ func _snap_cell(point: Vector3, always: bool) -> Dictionary:
 			var d := Vector2(cell.x - point.x, cell.z - point.z).length()
 			if d < best_distance:
 				best_distance = d
-				best = {"xform": Transform3D(m.global_basis, cell), "towards": m.global_position}
+				best = {"xform": Transform3D(m.global_basis, cell), "towards": m.global_position, "level": m.level}
 	if best.is_empty() or (not always and best_distance > SNAP_DISTANCE):
 		return {}
 	# Se gira en pasos de 90 grados (R) y, si por ese lado no tiene boca, al
@@ -295,8 +310,39 @@ func _snap_cell(point: Vector3, always: bool) -> Dictionary:
 		var basis := xform.basis * Basis(Vector3.UP, (start + k) * PI / 2.0)
 		var towards: Vector3 = basis.inverse() * (best["towards"] - xform.origin)
 		if ports.has(Module.side_of(towards)):
-			return {"xform": Transform3D(basis, xform.origin)}
+			return {"xform": Transform3D(basis, xform.origin), "level": best["level"]}
 	return {}
+
+
+## Silueta de un módulo encima de otro: mismo giro, una planta más arriba.
+func _place_on_top(lower: Module) -> String:
+	var xform := Transform3D(lower.global_basis, lower.global_position + Vector3.UP * Module.STOREY)
+	_set_ghost_level(lower.level + 1)
+	_ghost.global_transform = xform
+	_dig = {}
+	if _kind != "modulo" or lower.kind != "modulo":
+		return "solo se apilan módulos de hábitat"
+	if lower.above:
+		return "ya tiene otro encima"
+	var exclude := [terrain.get_rid()]
+	for child in lower.get_children():
+		if child is CollisionObject3D:
+			exclude.append(child.get_rid())
+	var inner := Module.SIZE - 0.6
+	_box.size = Vector3(inner, Module.HEIGHT, inner)
+	var center := xform.origin + Vector3(0, Module.FLOOR + Module.HEIGHT / 2.0 + 0.1, 0)
+	if _overlaps(Transform3D(xform.basis, center), exclude):
+		return "no hay sitio"
+	return ""
+
+
+func _set_ghost_level(level: int) -> void:
+	_level = level
+	var module := _ghost as Module
+	if module and module.level != level:
+		module.level = level
+		module.rebuild()
+		_tint(_ghost, _green if _tinted_valid else _red)
 
 
 ## Coloca la silueta de una puerta o ventana en la pared que se mira.
@@ -305,6 +351,8 @@ func _place_fitting(hit: Dictionary) -> String:
 	_target_side = -1
 	var collider: Object = hit["collider"] if hit else null
 	var module := _module_of(collider)
+	if _kind == "escalera":
+		return _place_ladder(module)
 	if module == null or not collider.has_meta("side"):
 		_ghost.visible = false
 		return "apunta a una pared de un módulo"
@@ -321,6 +369,26 @@ func _place_fitting(hit: Dictionary) -> String:
 
 	_target_module = module
 	_target_side = side
+	return ""
+
+
+## La escalera va siempre en la misma esquina del módulo que se mira.
+func _place_ladder(module: Module) -> String:
+	if module == null:
+		_ghost.visible = false
+		return "apunta a un módulo"
+	_ghost.visible = true
+	var top := Module.STOREY + Module.LADDER_TOP
+	var c := (Module.HATCH_MIN + Module.HATCH_MAX) / 2.0
+	var outline: MeshInstance3D = _ghost.get_child(0)
+	(outline.mesh as BoxMesh).size = Vector3(Module.HATCH_MAX - Module.HATCH_MIN, top, Module.HATCH_MAX - Module.HATCH_MIN)
+	outline.position = Vector3(c, top / 2.0, c)
+	_ghost.global_transform = module.global_transform
+	if module.is_corridor():
+		return "va en un módulo de hábitat, no en un pasillo"
+	if module.has_ladder():
+		return "ya tiene escalera"
+	_target_module = module
 	return ""
 
 
@@ -388,10 +456,15 @@ func _confirm() -> void:
 		"module":
 			var pos := _ghost.global_position
 			var data := {"kind": kind, "x": pos.x, "y": pos.y, "z": pos.z, "rot": _ghost.rotation.y, "sides": ["pared", "pared", "pared", "pared"]}
+			if _level > 0:
+				data["level"] = _level
 			Game.modules.append(data)
 			world.spawn_module(data)
 		"fitting":
-			_target_module.set_side(_target_side, kind)
+			if kind == "escalera":
+				_target_module.set_ladder(true)
+			else:
+				_target_module.set_side(_target_side, kind)
 	Sfx.play("colocar")
 	# Las piezas de la base se suelen poner varias seguidas: se sigue
 	# colocando mientras haya materiales.

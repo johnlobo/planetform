@@ -66,6 +66,8 @@ const RECIPES := {
 	"pasillo_t": {"name": "Pasillo en T", "cost": {"hierro": 4, "silicio": 1}, "kind": "module", "stage": 0},
 	"puerta": {"name": "Puerta", "cost": {"hierro": 2}, "kind": "fitting", "stage": 0},
 	"ventana": {"name": "Ventana", "cost": {"hierro": 1, "silicio": 2}, "kind": "fitting", "stage": 0},
+	# Va en una esquina del módulo y abre una trampilla al techo o a la planta de arriba.
+	"escalera": {"name": "Escalera", "cost": {"hierro": 2}, "kind": "fitting", "stage": 0},
 	"taquilla": {"name": "Taquilla", "cost": {"hierro": 3}, "kind": "building", "stage": 0},
 	"cama": {"name": "Cama", "cost": {"hierro": 3}, "kind": "building", "stage": 0},
 	"farola": {"name": "Farola", "cost": {"hierro": 1, "silicio": 1}, "kind": "building", "stage": 0},
@@ -260,8 +262,8 @@ var mine_progress := -1.0
 var tool_mode := "recoger"
 # Construcciones colocadas: [{"kind", "x", "y", "z", "rot"}], para el guardado.
 var machines: Array = []
-# Módulos de la base: [{"kind", "x", "y", "z", "rot", "sides"}]. Sin
-# "kind" (partidas viejas) es un "modulo".
+# Módulos de la base: [{"kind", "x", "y", "z", "rot", "sides", "level",
+# "ladder"}]. Sin "kind" (partidas viejas) es un "modulo"; sin "level", en el suelo.
 var modules: Array = []
 # Terreno excavado para construir: {Vector2i(vértice): altura máxima}.
 var digs := {}

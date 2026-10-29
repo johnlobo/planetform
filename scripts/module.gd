@@ -5,6 +5,8 @@ extends Node3D
 ## está a cubierto: no pierde oxígeno ni pasa frío.
 ## Los pasillos ocupan la misma casilla de 4 × 4 m pero son un tubo estrecho
 ## que solo sale por algunos lados (sus "bocas"): recto, en L o en T.
+## Encima del techo de un módulo se puede poner otro (una planta más) y, con
+## una escalera, se sube por una trampilla al techo o a la planta de arriba.
 
 const SIZE := 4.0
 const HEIGHT := 3.0 # altura libre del interior
@@ -24,6 +26,11 @@ const RAMP_ANGLE := 0.45 # radianes
 const CORRIDOR_WIDTH := 2.5
 const CORRIDOR_HEIGHT := 2.5
 const CORRIDOR_WINDOW := Vector2(1.6, 1.2) # ventana de pasillo, más pequeña
+const STOREY := FLOOR + HEIGHT + ROOF # altura de una planta
+# Trampilla de la escalera, en una esquina: de HATCH_MIN a HATCH_MAX en x y z.
+const HATCH_MIN := 0.75
+const HATCH_MAX := SIZE / 2.0 - WALL
+const LADDER_TOP := 1.1 # lo que asoma la escalera sobre el techo
 ## Lados por los que se puede pasar a otro módulo, según la receta.
 const PORTS := {"modulo": [0, 1, 2, 3], "pasillo": [0, 2], "pasillo_l": [0, 1], "pasillo_t": [0, 1, 3]}
 
@@ -37,6 +44,11 @@ var sides: Array = ["pared", "pared", "pared", "pared"]
 var open: Array = ["", "", "", ""]
 ## Receta: "modulo" o uno de los pasillos.
 var kind := "modulo"
+## Planta: 0 en el suelo, 1 encima de otro módulo...
+var level := 0
+## Módulos justo encima y debajo, o null.
+var above: Node3D
+var below: Node3D
 ## Entrada de Game.modules que se guarda con la partida.
 var data := {}
 var _ghost := false
@@ -50,6 +62,7 @@ func setup(module_data: Dictionary, ghost := false) -> void:
 	data = module_data
 	_ghost = ghost
 	kind = String(data.get("kind", "modulo"))
+	level = int(data.get("level", 0))
 	var saved: Array = data.get("sides", [])
 	for i in mini(saved.size(), 4):
 		sides[i] = String(saved[i])
@@ -70,6 +83,40 @@ func side_towards(point: Vector3) -> int:
 
 func is_corridor() -> bool:
 	return kind != "modulo"
+
+
+func has_ladder() -> bool:
+	return data.get("ladder", false)
+
+
+func set_ladder(value: bool) -> void:
+	if value:
+		data["ladder"] = true
+	else:
+		data.erase("ladder")
+	_build()
+	if above:
+		above.rebuild()
+
+
+func rebuild() -> void:
+	_build()
+
+
+## true si el punto global está en el hueco de la escalera, donde se trepa.
+func on_ladder(point: Vector3) -> bool:
+	if not has_ladder():
+		return false
+	var local := to_local(point)
+	var top := STOREY + (FLOOR + 0.3 if above else LADDER_TOP)
+	return local.x > HATCH_MIN - 0.1 and local.x < HATCH_MAX and local.z > HATCH_MIN - 0.1 and local.z < HATCH_MAX \
+			and local.y > -0.2 and local.y < top
+
+
+## Centro del hueco de la trampilla, en coordenadas globales.
+func hatch_center() -> Vector3:
+	var c := (HATCH_MIN + HATCH_MAX) / 2.0
+	return to_global(Vector3(c, 0, c))
 
 
 func has_port(i: int) -> bool:
@@ -185,8 +232,12 @@ func _build() -> void:
 	# Suelo aparte: sobre él se pueden colocar máquinas.
 	var floor_body := _body()
 	floor_body.add_to_group("base_floor")
-	_box(floor_body, Vector3(SIZE, FLOOR, SIZE), Vector3(0, FLOOR / 2.0, 0), "suelo")
-	_box(floor_body, Vector3(SIZE - 0.1, SKIRT, SIZE - 0.1), Vector3(0, -SKIRT / 2.0, 0), "zocalo")
+	if below and below.has_ladder():
+		_plate_with_hatch(floor_body, FLOOR / 2.0, FLOOR, "suelo")
+	else:
+		_box(floor_body, Vector3(SIZE, FLOOR, SIZE), Vector3(0, FLOOR / 2.0, 0), "suelo")
+	if level == 0:
+		_box(floor_body, Vector3(SIZE - 0.1, SKIRT, SIZE - 0.1), Vector3(0, -SKIRT / 2.0, 0), "zocalo")
 	var shell := _body()
 	if not _ghost:
 		# Sin luz propia el interior se ve casi negro: el techo tapa el sol.
@@ -199,7 +250,14 @@ func _build() -> void:
 		add_child(lamp)
 		_lamps.append(lamp)
 		_box(shell, Vector3(0.8, 0.06, 0.8), Vector3(0, FLOOR + HEIGHT - 0.03, 0), "lampara", false)
-	_box(shell, Vector3(SIZE, ROOF, SIZE), Vector3(0, FLOOR + HEIGHT + ROOF / 2.0, 0), "techo")
+	# Techo aparte: encima se pueden colocar máquinas (paneles) u otro módulo.
+	var roof := _body()
+	roof.add_to_group("base_roof")
+	if has_ladder():
+		_plate_with_hatch(roof, FLOOR + HEIGHT + ROOF / 2.0, ROOF, "techo")
+		_add_ladder()
+	else:
+		_box(roof, Vector3(SIZE, ROOF, SIZE), Vector3(0, FLOOR + HEIGHT + ROOF / 2.0, 0), "techo")
 	for i in 4:
 		if open[i] == "full":
 			continue
@@ -243,7 +301,8 @@ func _build_corridor() -> void:
 	floor_body.add_to_group("base_floor")
 	var shell := _body()
 	_box(floor_body, Vector3(w, FLOOR, w), Vector3(0, FLOOR / 2.0, 0), "suelo")
-	_box(floor_body, Vector3(w - 0.1, SKIRT, w - 0.1), Vector3(0, -SKIRT / 2.0, 0), "zocalo")
+	if level == 0:
+		_box(floor_body, Vector3(w - 0.1, SKIRT, w - 0.1), Vector3(0, -SKIRT / 2.0, 0), "zocalo")
 	_box(shell, Vector3(w, ROOF, w), Vector3(0, FLOOR + CORRIDOR_HEIGHT + ROOF / 2.0, 0), "techo")
 	if not _ghost:
 		var lamp := OmniLight3D.new()
@@ -265,7 +324,8 @@ func _build_corridor() -> void:
 		# centro para que no quede rendija en las esquinas.
 		var mid := -(w / 2.0 + arm / 2.0)
 		_box(floor_body, Vector3(w, FLOOR, arm), turn * Vector3(0, FLOOR / 2.0, mid), "suelo", true, turn)
-		_box(floor_body, Vector3(w - 0.1, SKIRT, arm), turn * Vector3(0, -SKIRT / 2.0, mid), "zocalo", true, turn)
+		if level == 0:
+			_box(floor_body, Vector3(w - 0.1, SKIRT, arm), turn * Vector3(0, -SKIRT / 2.0, mid), "zocalo", true, turn)
 		_box(shell, Vector3(w, ROOF, arm), turn * Vector3(0, FLOOR + CORRIDOR_HEIGHT + ROOF / 2.0, mid), "techo", true, turn)
 		var length := arm + WALL
 		for sx in [-1.0, 1.0]:
@@ -273,6 +333,48 @@ func _build_corridor() -> void:
 			_box(shell, Vector3(WALL, CORRIDOR_HEIGHT, length), turn * pos, "pared", true, turn)
 		if open[i] == "":
 			_corridor_wall(i, -half + WALL / 2.0)
+
+
+## Placa de SIZE × SIZE (suelo o techo) con el hueco de la trampilla en la
+## esquina, con su centro a la altura y.
+func _plate_with_hatch(body: Node3D, y: float, thickness: float, material: String) -> void:
+	var half := SIZE / 2.0
+	var a := HATCH_MIN
+	var b := HATCH_MAX
+	# Lo que queda alrededor del hueco: una franja ancha y tres pequeñas.
+	_box(body, Vector3(a + half, thickness, SIZE), Vector3((a - half) / 2.0, y, 0), material)
+	_box(body, Vector3(half - a, thickness, a + half), Vector3((a + half) / 2.0, y, (a - half) / 2.0), material)
+	_box(body, Vector3(half - b, thickness, half - a), Vector3((b + half) / 2.0, y, (a + half) / 2.0), material)
+	_box(body, Vector3(b - a, thickness, half - b), Vector3((a + b) / 2.0, y, (b + half) / 2.0), material)
+	_box(body, Vector3(b - a + 0.04, 0.04, 0.04), Vector3((a + b) / 2.0, y + thickness / 2.0, a), "acento", false)
+
+
+## Escalera de mano pegada a la pared derecha (+X), en el hueco de la
+## trampilla: sube hasta la planta de arriba o asoma por el techo.
+func _add_ladder() -> void:
+	var body := _body()
+	body.set_meta("ladder", true)
+	# En la capa 2, como el musgo: el rayo de la herramienta la ve pero el
+	# jugador no choca con ella al trepar.
+	if body is CollisionObject3D:
+		body.collision_layer = 2
+	var top := STOREY + (FLOOR if above else LADDER_TOP)
+	var x := HATCH_MAX - 0.08
+	var z := (HATCH_MIN + HATCH_MAX) / 2.0
+	var width := 0.6
+	for sz in [-1.0, 1.0]:
+		_box(body, Vector3(0.06, top, 0.06), Vector3(x, top / 2.0, z + sz * width / 2.0), "acento", false)
+	var rungs := int(top / 0.35)
+	for k in rungs:
+		_box(body, Vector3(0.04, 0.04, width), Vector3(x, 0.3 + k * 0.35, z), "hoja", false)
+	# Una caja invisible para poder apuntarla y desmontarla.
+	if body is CollisionObject3D:
+		var shape := BoxShape3D.new()
+		shape.size = Vector3(0.1, top, width)
+		var collision := CollisionShape3D.new()
+		collision.shape = shape
+		collision.position = Vector3(x, top / 2.0, z)
+		body.add_child(collision)
 
 
 ## Pared de pasillo del ancho del tubo en el lado i, con su cara en z; puede
