@@ -11,7 +11,7 @@ const HEIGHT := 3.0 # altura libre del interior
 const WALL := 0.2
 const FLOOR := 0.25
 const ROOF := 0.25
-const SKIRT := 1.5 # zócalo bajo el suelo para que no flote en las cuestas
+const SKIRT := 3.5 # zócalo bajo el suelo para que no flote en las cuestas
 const DOOR_SIZE := Vector2(1.4, 2.3)
 const WINDOW_SIZE := Vector2(3.0, 1.8)
 const WINDOW_BOTTOM := 0.7
@@ -23,6 +23,7 @@ const RAMP_ANGLE := 0.45 # radianes
 # Pasillos: ancho por fuera y altura libre. Por dentro caben las puertas.
 const CORRIDOR_WIDTH := 2.5
 const CORRIDOR_HEIGHT := 2.5
+const CORRIDOR_WINDOW := Vector2(1.6, 1.2) # ventana de pasillo, más pequeña
 ## Lados por los que se puede pasar a otro módulo, según la receta.
 const PORTS := {"modulo": [0, 1, 2, 3], "pasillo": [0, 2], "pasillo_l": [0, 1], "pasillo_t": [0, 1, 3]}
 
@@ -41,6 +42,8 @@ var data := {}
 var _ghost := false
 ## Puertas correderas: {"center": Node3D, "leaves": [izquierda, derecha], "t": 0..1}.
 var _doors: Array = []
+## Luces del techo: solo se encienden si hay energía.
+var _lamps: Array[OmniLight3D] = []
 
 
 func setup(module_data: Dictionary, ghost := false) -> void:
@@ -120,13 +123,37 @@ func set_open(i: int, value: String) -> void:
 
 ## Centro y tamaño del hueco de una puerta o ventana, en coordenadas del lado
 ## 0 (antes de girarlo hacia su lado).
-static func opening_box(kind: String) -> AABB:
-	var size := DOOR_SIZE if kind == "puerta" else WINDOW_SIZE
+## En un pasillo, "corridor"; si además el lado no es una boca, la pared está
+## más adentro, en el borde del cuadrado del centro.
+static func opening_box(kind: String, corridor := false, inner := false) -> AABB:
+	var size := DOOR_SIZE if kind == "puerta" else (CORRIDOR_WINDOW if corridor else WINDOW_SIZE)
 	var bottom := FLOOR if kind == "puerta" else FLOOR + WINDOW_BOTTOM
-	return AABB(Vector3(-size.x / 2.0, bottom, -SIZE / 2.0 - 0.05), Vector3(size.x, size.y, WALL + 0.1))
+	var face := -CORRIDOR_WIDTH / 2.0 if inner else -SIZE / 2.0
+	return AABB(Vector3(-size.x / 2.0, bottom, face - 0.05), Vector3(size.x, size.y, WALL + 0.1))
+
+
+## Hueco de una puerta o ventana en el lado i de este módulo.
+func opening_for(kind: String, i: int) -> AABB:
+	return opening_box(kind, is_corridor(), is_corridor() and not has_port(i))
+
+
+## Con energía (o batería cargada) se encienden las luces del techo.
+static func has_power() -> bool:
+	return Game.generated_energy() > 0 or Game.battery_charge > 0.0
 
 
 func _process(delta: float) -> void:
+	if not _lamps.is_empty():
+		var lit := has_power()
+		if lit != _lamps[0].visible:
+			for lamp in _lamps:
+				lamp.visible = lit
+		# El material de la lámpara es el mismo para todos los módulos.
+		var glow := 1.0 if lit else 0.0
+		var material := _material("lampara")
+		if material.emission_energy_multiplier != glow:
+			material.emission_energy_multiplier = glow
+			material.albedo_color = Color(1.0, 0.95, 0.85) if lit else Color(0.55, 0.55, 0.52)
 	if _doors.is_empty():
 		return
 	var player := get_tree().get_first_node_in_group("player") as Node3D
@@ -150,6 +177,7 @@ func _build() -> void:
 		remove_child(child)
 		child.queue_free()
 	_doors.clear()
+	_lamps.clear()
 	if is_corridor():
 		_build_corridor()
 		return
@@ -167,7 +195,9 @@ func _build() -> void:
 		lamp.omni_range = SIZE * 1.1
 		lamp.light_energy = 0.8
 		lamp.light_color = Color(1.0, 0.92, 0.8)
+		lamp.visible = has_power()
 		add_child(lamp)
+		_lamps.append(lamp)
 		_box(shell, Vector3(0.8, 0.06, 0.8), Vector3(0, FLOOR + HEIGHT - 0.03, 0), "lampara", false)
 	_box(shell, Vector3(SIZE, ROOF, SIZE), Vector3(0, FLOOR + HEIGHT + ROOF / 2.0, 0), "techo")
 	for i in 4:
@@ -221,13 +251,15 @@ func _build_corridor() -> void:
 		lamp.omni_range = SIZE * 0.9
 		lamp.light_energy = 0.7
 		lamp.light_color = Color(1.0, 0.92, 0.8)
+		lamp.visible = has_power()
 		add_child(lamp)
+		_lamps.append(lamp)
 		_box(shell, Vector3(0.5, 0.05, 0.5), Vector3(0, FLOOR + CORRIDOR_HEIGHT - 0.025, 0), "lampara", false)
 	for i in 4:
 		var turn := Basis(Vector3.UP, -i * PI / 2.0)
 		if not has_port(i):
 			# Pared que cierra el cuadrado del centro por ese lado.
-			_box(shell, Vector3(w, CORRIDOR_HEIGHT, WALL), turn * Vector3(0, FLOOR + CORRIDOR_HEIGHT / 2.0, -w / 2.0 + WALL / 2.0), "pared", true, turn)
+			_corridor_wall(i, -w / 2.0 + WALL / 2.0)
 			continue
 		# Brazo: suelo, zócalo, techo y dos paredes que entran un poco en el
 		# centro para que no quede rendija en las esquinas.
@@ -239,16 +271,25 @@ func _build_corridor() -> void:
 		for sx in [-1.0, 1.0]:
 			var pos := Vector3(sx * (w / 2.0 - WALL / 2.0), FLOOR + CORRIDOR_HEIGHT / 2.0, -half + length / 2.0)
 			_box(shell, Vector3(WALL, CORRIDOR_HEIGHT, length), turn * pos, "pared", true, turn)
-		if open[i] != "":
-			continue
-		var wall := _body()
-		wall.set_meta("side", i)
-		wall.rotation.y = -i * PI / 2.0
-		var z := -half + WALL / 2.0
-		if String(sides[i]) == "puerta":
+		if open[i] == "":
+			_corridor_wall(i, -half + WALL / 2.0)
+
+
+## Pared de pasillo del ancho del tubo en el lado i, con su cara en z; puede
+## llevar puerta o ventana.
+func _corridor_wall(i: int, z: float) -> void:
+	var w := CORRIDOR_WIDTH
+	var wall := _body()
+	wall.set_meta("side", i)
+	wall.rotation.y = -i * PI / 2.0
+	match String(sides[i]):
+		"puerta":
 			_wall_with_hole(wall, z, DOOR_SIZE, 0.0, w, CORRIDOR_HEIGHT)
 			_add_door(wall, z)
-		else:
+		"ventana":
+			_wall_with_hole(wall, z, CORRIDOR_WINDOW, WINDOW_BOTTOM, w, CORRIDOR_HEIGHT)
+			_box(wall, Vector3(CORRIDOR_WINDOW.x, CORRIDOR_WINDOW.y, 0.05), Vector3(0, FLOOR + WINDOW_BOTTOM + CORRIDOR_WINDOW.y / 2.0, z), "cristal")
+		_:
 			_box(wall, Vector3(w, CORRIDOR_HEIGHT, WALL), Vector3(0, FLOOR + CORRIDOR_HEIGHT / 2.0, z), "pared")
 
 

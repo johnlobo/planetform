@@ -263,6 +263,8 @@ var machines: Array = []
 # Módulos de la base: [{"kind", "x", "y", "z", "rot", "sides"}]. Sin
 # "kind" (partidas viejas) es un "modulo".
 var modules: Array = []
+# Terreno excavado para construir: {Vector2i(vértice): altura máxima}.
+var digs := {}
 # Vehículos: [{"kind", "x", "y", "z", "rot", "battery", "items"}].
 var vehicles: Array = []
 # El vehículo que conduce el jugador, o null.
@@ -800,6 +802,7 @@ func save_game() -> void:
 		"machines": machines,
 		"modules": modules,
 		"vehicles": vehicles,
+		"digs": _digs_list(),
 	}
 	var player := get_tree().get_first_node_in_group("player") as Node3D
 	if player:
@@ -811,6 +814,14 @@ func save_game() -> void:
 		push_warning("No se pudo guardar la partida: %s" % FileAccess.get_open_error())
 		return
 	file.store_string(JSON.stringify(data))
+
+
+## Las excavaciones como [i, j, altura], que es lo que cabe en JSON.
+func _digs_list() -> Array:
+	var list := []
+	for key in digs:
+		list.append([key.x, key.y, digs[key]])
+	return list
 
 
 ## Carga la partida guardada, si existe. Devuelve true si se ha cargado.
@@ -866,6 +877,9 @@ func load_game() -> bool:
 	for m in data.get("modules", []):
 		if typeof(m) == TYPE_DICTIONARY:
 			modules.append(m)
+	for d in data.get("digs", []):
+		if d is Array and d.size() == 3:
+			digs[Vector2i(int(d[0]), int(d[1]))] = float(d[2])
 	for v in data.get("vehicles", []):
 		if typeof(v) == TYPE_DICTIONARY and RECIPES.has(v.get("kind", "")):
 			vehicles.append(v)
@@ -923,6 +937,7 @@ func _reset_state() -> void:
 	machines = []
 	modules = []
 	vehicles = []
+	digs = {}
 	vehicle = null
 	tool_mode = "recoger"
 	sheltered = false

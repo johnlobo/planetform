@@ -93,7 +93,12 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 - **Pasillos** (recto 3 hierro + 1 silicio; en L y en T 4 hierro + 1 silicio): ocupan una casilla de 4 × 4 m como un módulo
   pero son un tubo de 2,5 m de ancho que solo sale por sus bocas. Al colocarlos junto a un módulo se giran solos para que una boca
   mire hacia él (R cambia a la siguiente posición que encaje); el módulo deja un hueco del ancho del pasillo. Las bocas libres se
-  cierran con una pared a la que se le puede poner una puerta (las ventanas no caben).
+  cierran con una pared a la que se le puede poner una puerta o una ventana pequeña; las paredes laterales del cuadrado del
+  centro también admiten puerta o ventana.
+- **Luces de la base:** las de los módulos y pasillos solo se encienden si se produce energía o hay batería cargada.
+- **Cuestas:** si el terreno sobresale por encima del suelo de un módulo, se excava al colocarlo (hasta 3 m); por debajo, el zócalo
+  llega hasta 3,5 m. Las máquinas en una cuesta de más de 0,7 m se ponen a la altura de su esquina más baja y también se excava
+  lo que sobra. Lo excavado se guarda con la partida y no vuelve aunque se desmonte lo construido.
 - **Cama** (3 hierro): va dentro de la base. Con E o clic duermes hasta el amanecer si es de noche (pasa algo de hambre) y desde
   entonces reapareces en ella al morir.
 - **Farola** (1 hierro + 1 silicio): lleva su placa solar, no gasta energía y se enciende sola de noche.

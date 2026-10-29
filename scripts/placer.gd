@@ -11,8 +11,9 @@ const Player := preload("res://scripts/player.gd")
 const Rover := preload("res://scripts/rover.gd")
 
 const REACH := 10.0 # metros desde la cámara
-const MAX_SLOPE := 0.7 # diferencia de altura máxima entre las esquinas, en metros
-const MODULE_MAX_SLOPE := 1.2 # los módulos tienen zócalo y aguantan más desnivel
+const MAX_SLOPE := 0.7 # con más desnivel entre las esquinas, se excava el suelo
+# Lo más que se excava para encajar una construcción, en metros.
+const DIG_MAX := 3.0
 const ROTATE_STEP := PI / 12.0 # 15 grados por paso de rueda
 const SPACING := 0.2 # holgura entre construcciones, en metros
 const SNAP_DISTANCE := 3.0 # a menos de esto de un hueco junto a otro módulo, se pega a él
@@ -31,6 +32,8 @@ var _tinted_valid := false
 # Pared elegida para una puerta o ventana.
 var _target_module: Module
 var _target_side := -1
+# Terreno que hay que rebajar al colocar: {"xform", "size", "level"} o {}.
+var _dig := {}
 # Recurso del depósito sobre el que va el extractor.
 var _deposit_type := ""
 var _green := _ghost_material(Color(0.2, 1.0, 0.35, 0.45))
@@ -128,6 +131,7 @@ func _update_ghost() -> void:
 	var camera := player.camera
 	var from := camera.global_position
 	var forward := -camera.global_transform.basis.z
+	_dig = {}
 	var query := PhysicsRayQueryParameters3D.create(from, from + forward * REACH)
 	query.exclude = [player.get_rid()]
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
@@ -191,7 +195,13 @@ func _place_machine(point: Vector3, hit: Dictionary) -> String:
 	else:
 		var heights := _corner_heights(point, basis, size)
 		if heights.y - heights.x > MAX_SLOPE:
-			return "terreno demasiado inclinado"
+			# En cuesta se pone a la altura de la esquina más baja y se excava
+			# lo que sobresale.
+			if heights.y - heights.x > DIG_MAX:
+				return "terreno demasiado inclinado"
+			point.y = heights.x
+			_ghost.global_position = point
+			_dig = {"xform": Transform3D(basis, point), "size": Vector2(size.x, size.z) + Vector2(SPACING, SPACING), "level": point.y - 0.02}
 	# Choca con otra construcción, un recurso o el propio jugador.
 	_box.size = size + Vector3(SPACING, 0.0, SPACING)
 	if _overlaps(Transform3D(basis, point + Vector3(0, size.y / 2.0 + 0.05, 0)), exclude):
@@ -221,7 +231,8 @@ func _place_module(point: Vector3, hit: Dictionary) -> String:
 					if child is CollisionObject3D:
 						exclude.append(child.get_rid())
 		var heights := _corner_heights(xform.origin, xform.basis, Vector3(Module.SIZE, 0, Module.SIZE))
-		if heights.y > xform.origin.y + Module.FLOOR + 0.2:
+		# Lo que sobresale se excava al colocarlo.
+		if heights.y > xform.origin.y + DIG_MAX:
 			return "el terreno es demasiado alto"
 		if heights.x < xform.origin.y - Module.SKIRT:
 			return "el terreno es demasiado bajo"
@@ -235,11 +246,13 @@ func _place_module(point: Vector3, hit: Dictionary) -> String:
 		_ghost.global_transform = xform
 		if hit.is_empty():
 			return "demasiado lejos"
-		if heights.y - heights.x > MODULE_MAX_SLOPE:
+		if heights.y - heights.x > Module.SKIRT:
 			return "terreno demasiado inclinado"
 	var common := _check_area(xform.origin)
 	if common != "":
 		return common
+	# Se excava también lo que asome entre las esquinas.
+	_dig = {"xform": xform, "size": Vector2(Module.SIZE, Module.SIZE), "level": xform.origin.y - 0.02}
 	var inner := Module.SIZE - 0.6
 	_box.size = Vector3(inner, Module.HEIGHT, inner)
 	var center := xform.origin + Vector3(0, Module.FLOOR + Module.HEIGHT / 2.0 + 0.1, 0)
@@ -297,11 +310,15 @@ func _place_fitting(hit: Dictionary) -> String:
 		return "apunta a una pared de un módulo"
 	_ghost.visible = true
 	var side: int = collider.get_meta("side")
+	# En los pasillos el hueco cambia de tamaño y de sitio.
+	var hole := module.opening_for(_kind, side)
+	var outline: MeshInstance3D = _ghost.get_child(0)
+	(outline.mesh as BoxMesh).size = hole.size + Vector3(0.1, 0.1, 0.1)
+	outline.position = hole.get_center()
 	_ghost.global_transform = module.global_transform * Transform3D(Basis(Vector3.UP, -side * PI / 2.0), Vector3.ZERO)
 	if String(module.sides[side]) != "pared":
 		return "esa pared ya tiene %s" % ("puerta" if module.sides[side] == "puerta" else "ventana")
-	if module.is_corridor() and _kind == "ventana":
-		return "en los pasillos solo caben puertas"
+
 	_target_module = module
 	_target_side = side
 	return ""
@@ -353,6 +370,8 @@ func _confirm() -> void:
 		Game.message.emit("Te faltan materiales.")
 		cancel()
 		return
+	if not _dig.is_empty():
+		world.land.dig(_dig["xform"], _dig["size"], _dig["level"])
 	match _mode:
 		"building":
 			var pos := _ghost.global_position

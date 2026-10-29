@@ -118,8 +118,75 @@ void fragment() {
 	_update(around, INF)
 
 
-## Altura del terreno en un punto, según el ruido.
+## Altura del terreno en un vértice de la malla: la del ruido, salvo donde se
+## ha excavado para construir (Game.digs).
 func height_at(x: float, z: float) -> float:
+	var h := _noise_height(x, z)
+	if not Game.digs.is_empty():
+		var key := _vertex(x, z)
+		# Solo en los vértices: entre ellos manda el ruido (pendientes).
+		var on_grid := absf(-WORLD_SIZE / 2.0 + key.x * STEP - x) < 0.01 and absf(-WORLD_SIZE / 2.0 + key.y * STEP - z) < 0.01
+		if on_grid and Game.digs.has(key):
+			h = minf(h, float(Game.digs[key]))
+	return h
+
+
+## Vértice de la malla detallada más cercano al punto.
+static func _vertex(x: float, z: float) -> Vector2i:
+	return Vector2i(roundi((x + WORLD_SIZE / 2.0) / STEP), roundi((z + WORLD_SIZE / 2.0) / STEP))
+
+
+## Rebaja hasta la altura "level" el terreno bajo un rectángulo de tamaño
+## "size" (ancho, fondo) con el centro y el giro de xform, y rehace los trozos
+## que cambian. Se bajan también los vértices a menos de STEP del borde para
+## que ningún triángulo asome dentro.
+func dig(xform: Transform3D, size: Vector2, level: float) -> void:
+	var half := size / 2.0 + Vector2(STEP, STEP)
+	var reach := half.length()
+	var c := xform.origin
+	var first := _vertex(c.x - reach, c.z - reach)
+	var last := _vertex(c.x + reach, c.z + reach)
+	var changed := {}
+	for i in range(first.x, last.x + 1):
+		for j in range(first.y, last.y + 1):
+			var x := -WORLD_SIZE / 2.0 + i * STEP
+			var z := -WORLD_SIZE / 2.0 + j * STEP
+			var local := xform.basis.inverse() * Vector3(x - c.x, 0.0, z - c.z)
+			if absf(local.x) > half.x or absf(local.z) > half.y:
+				continue
+			var key := Vector2i(i, j)
+			if height_at(x, z) <= level:
+				continue
+			Game.digs[key] = level
+			# Un vértice del borde de un trozo es de los dos (o cuatro) trozos.
+			for dx in [-0.01, 0.01]:
+				for dz in [-0.01, 0.01]:
+					changed[_chunk_key(x + dx, z + dz)] = true
+	for key in changed:
+		if _chunks.has(key):
+			_rebuild_ground(key)
+
+
+func _chunk_key(x: float, z: float) -> Vector2i:
+	return Vector2i(floori((x + WORLD_SIZE / 2.0) / CHUNK), floori((z + WORLD_SIZE / 2.0) / CHUNK))
+
+
+## Rehace las mallas y la colisión de un trozo sin tocar lo que tiene encima.
+func _rebuild_ground(key: Vector2i) -> void:
+	var chunk: Dictionary = _chunks[key]
+	var center: Vector3 = chunk["center"]
+	chunk["far"].mesh = _chunk_mesh(center, FAR_STEP)[0]
+	if chunk["detail"] == null:
+		return
+	var built := _chunk_mesh(center, STEP)
+	(chunk["detail"].get_child(0) as MeshInstance3D).mesh = built[0]
+	var shape := ConcavePolygonShape3D.new()
+	shape.backface_collision = true
+	shape.set_faces(built[1])
+	chunk["shape"].shape = shape
+
+
+func _noise_height(x: float, z: float) -> float:
 	var h := noise.get_noise_2d(x, z) * HEIGHT
 	var wild := smoothstep(MOUNTAIN_START, MOUNTAIN_FULL, Vector2(x, z).length())
 	if wild <= 0.0:
