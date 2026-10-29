@@ -23,7 +23,7 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 | Clic izquierdo | Usar la herramienta (y capturar el ratón) |
 | 1 / 2 / 3 o rueda del ratón | Cambiar el modo de la herramienta: recoger, construir o desmontar |
 | Tab o C | Abrir y cerrar el menú de fabricar y construir (vuelve a la última pestaña usada) |
-| E | Abrir la taquilla, la bomba de agua, el bancal o la estación de drones que miras; subir al róver y bajar de él |
+| E | Abrir la taquilla, la bomba de agua, el bancal, el extractor o la estación de drones que miras; dormir en la cama; subir al róver y bajar de él |
 | W S / A D (en el róver) | Acelerar y frenar o marcha atrás / girar; Espacio es el freno |
 | Q | Usar una botella de oxígeno |
 | F | Comer (verduras, raciones o guiso) |
@@ -90,6 +90,17 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 - **Base:** el **módulo de hábitat** es una caja de 4 × 4 m. Si miras un módulo al colocar otro, se encaja a su lado y la pared
   común desaparece. A sus paredes se les añaden **puertas** (con rampa) y **ventanas**. Dentro de un módulo se rellena tu oxígeno
   y no pasas frío, y se pueden colocar máquinas sobre su suelo.
+- **Pasillos** (recto 3 hierro + 1 silicio; en L y en T 4 hierro + 1 silicio): ocupan una casilla de 4 × 4 m como un módulo
+  pero son un tubo de 2,5 m de ancho que solo sale por sus bocas. Al colocarlos junto a un módulo se giran solos para que una boca
+  mire hacia él (R cambia a la siguiente posición que encaje); el módulo deja un hueco del ancho del pasillo. Las bocas libres se
+  cierran con una pared a la que se le puede poner una puerta (las ventanas no caben).
+- **Cama** (3 hierro): va dentro de la base. Con E o clic duermes hasta el amanecer si es de noche (pasa algo de hambre) y desde
+  entonces reapareces en ella al morir.
+- **Farola** (1 hierro + 1 silicio): lleva su placa solar, no gasta energía y se enciende sola de noche.
+- **Extractor automático** (Primera neblina, 5 hierro + 2 silicio): se coloca mirando un depósito y saca su recurso sin agotarlo,
+  1 cada 15 s con energía (gasta 1) hasta 15 guardados; se vacía con E.
+- **Batería** (Primera neblina, 3 hierro + 3 cobre + 1 silicio): guarda la energía que sobra (hasta 2 por segundo) y la da cuando falta,
+  por ejemplo de noche. Cada una guarda lo justo para tener 1 de energía durante una noche entera. La carga sale en la esquina.
 - Tu oxígeno baja con el tiempo; las **botellas** lo recargan. Si llega a cero, mueres.
 - Al morir, la pantalla se funde a negro en 3 segundos y sale **GAME OVER**; con Enter vuelves a la base con el oxígeno, el calor y la comida al máximo.
 - **Lluvias** (75 %): aparecen nubes, el cielo se vuelve azul y los bosques del mapa empiezan a crecer. Cada 3 minutos de juego cae

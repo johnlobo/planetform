@@ -510,11 +510,16 @@ func spawn_module(data: Dictionary) -> void:
 	module.position = Vector3(float(data["x"]), float(data["y"]), float(data["z"]))
 	module.rotation.y = float(data["rot"])
 	add_child(module)
-	# Los lados pegados a otro módulo se abren en los dos para unirlos.
+	# Los lados pegados a otro módulo se abren en los dos para unirlos, si
+	# los dos tienen boca por ese lado. Con un pasillo el hueco es estrecho.
 	for other in modules:
 		if _adjacent(module, other):
-			module.set_open(module.side_towards(other.global_position), true)
-			other.set_open(other.side_towards(module.global_position), true)
+			var side := module.side_towards(other.global_position)
+			var other_side := other.side_towards(module.global_position)
+			if module.has_port(side) and other.has_port(other_side):
+				var join := "narrow" if module.is_corridor() or other.is_corridor() else "full"
+				module.set_open(side, join)
+				other.set_open(other_side, join)
 	modules.append(module)
 
 
@@ -549,19 +554,19 @@ func dismantle_info(target: Object) -> Dictionary:
 	if target.has_meta("side"):
 		var side: int = target.get_meta("side")
 		var fitting := String(module.sides[side])
-		if fitting != "pared" and not module.open[side]:
+		if fitting != "pared" and module.open[side] == "":
 			# La pared con la puerta o ventana: se quita solo esa pieza.
 			var wall: Node3D = target
 			while wall.get_parent() != module:
 				wall = wall.get_parent()
 			return {"name": Game.RECIPES[fitting]["name"], "node": wall, "refund": Game.RECIPES[fitting]["cost"]}
-	var info := {"name": Game.RECIPES["modulo"]["name"], "node": module}
+	var info := {"name": Game.RECIPES[module.kind]["name"], "node": module}
 	for child in get_children():
 		if child is Machine and module.contains(child.global_position + Vector3(0, 0.3, 0)):
 			info["reason"] = "saca antes lo que hay dentro"
 			return info
 	# Se devuelven también las puertas y ventanas que tenga.
-	var refund: Dictionary = Game.RECIPES["modulo"]["cost"].duplicate()
+	var refund: Dictionary = Game.RECIPES[module.kind]["cost"].duplicate()
 	for fitting in module.sides:
 		if fitting != "pared":
 			var cost: Dictionary = Game.RECIPES[fitting]["cost"]
@@ -615,7 +620,7 @@ func _remove_module(module: Module) -> void:
 	# Los vecinos vuelven a tener pared en el lado que compartían.
 	for other in modules:
 		if _adjacent(module, other):
-			other.set_open(other.side_towards(module.global_position), false)
+			other.set_open(other.side_towards(module.global_position), "")
 	module.queue_free()
 
 

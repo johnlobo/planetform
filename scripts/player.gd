@@ -124,6 +124,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_in(target)
 		elif target is Machine and target.is_storage():
 			Game.locker_requested.emit(target)
+		elif target is Machine and target.is_usable():
+			target.use()
 	elif event.is_action_pressed("use_bottle"):
 		Game.use_bottle()
 	elif event.is_action_pressed("eat"):
@@ -334,6 +336,8 @@ func _interact() -> void:
 		"recoger":
 			if (target is Machine or target is Rover) and target.is_storage():
 				Game.locker_requested.emit(target)
+			elif target is Machine and target.is_usable():
+				target.use()
 			elif target and target.has_method("harvest"):
 				_mining = true # sigue en _update_mining mientras no se suelte
 
@@ -366,5 +370,7 @@ static func _highlight_material() -> StandardMaterial3D:
 
 func _on_respawned() -> void:
 	get_out()
-	global_position = spawn_point
+	var bed = Game.spawn_bed()
+	# Junto a la cama donde se durmió por última vez, o en la base.
+	global_position = bed + Vector3(0, 0.8, 0) if bed != null else spawn_point
 	velocity = Vector3.ZERO

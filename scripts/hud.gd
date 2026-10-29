@@ -210,6 +210,8 @@ func _process(delta: float) -> void:
 	planet_label.text = Game.clock_text() + ("  (noche)" if Game.is_night() else "") + ("  (lloviendo)" if Game.is_raining() else "") + "\nEtapa: %s\nOxígeno: %.1f %%\nTemperatura: %.1f %%\nPresión: %.1f %%\nBiomasa: %.1f %%\nÍndice: %.1f %%\nEnergía: %d producida / %d necesaria" % [
 		Game.STAGES[Game.stage]["name"], Game.oxygen, Game.temperature, Game.pressure, Game.biomass,
 		Game.terraform_index(), Game.energy_supply(), Game.energy_demand()]
+	if Game.battery_capacity() > 0.0:
+		planet_label.text += "\nBaterías: %d %%" % roundi(Game.battery_percent())
 	if message_timer > 0.0:
 		message_timer -= delta
 		if message_timer <= 0.0 and not Game.finished:

@@ -31,6 +31,8 @@ var _tinted_valid := false
 # Pared elegida para una puerta o ventana.
 var _target_module: Module
 var _target_side := -1
+# Recurso del depósito sobre el que va el extractor.
+var _deposit_type := ""
 var _green := _ghost_material(Color(0.2, 1.0, 0.35, 0.45))
 var _red := _ghost_material(Color(1.0, 0.2, 0.15, 0.45))
 var _box := BoxShape3D.new()
@@ -54,7 +56,7 @@ func start(kind: String) -> void:
 			_ghost = rover
 		"module":
 			var module := Module.new()
-			module.setup({}, true)
+			module.setup({"kind": kind}, true)
 			_ghost = module
 		"fitting":
 			_ghost = Node3D.new()
@@ -158,6 +160,15 @@ func _place_machine(point: Vector3, hit: Dictionary) -> String:
 		return "va fuera, al aire libre"
 	if on_floor and _mode == "vehicle":
 		return "el róver va fuera de la base"
+	var exclude := [terrain.get_rid()]
+	# El extractor se encaja encima del depósito que se mira.
+	var deposit: Node3D = null
+	if Game.MACHINES.get(_kind, {}).get("produces", "") == "deposit":
+		if hit and hit["collider"].is_in_group("deposit"):
+			deposit = hit["collider"]
+			point = deposit.global_position
+			exclude.append(deposit.get_rid())
+			_deposit_type = String(deposit.get("resource_type"))
 	if not on_floor:
 		point.y = world.surface_height(point.x, point.z)
 	var rot := player.rotation.y + _rotation
@@ -165,12 +176,15 @@ func _place_machine(point: Vector3, hit: Dictionary) -> String:
 	_ghost.rotation.y = rot
 	if hit.is_empty():
 		return "demasiado lejos"
+	if Game.MACHINES.get(_kind, {}).get("inside", false) and not on_floor:
+		return "va dentro de la base"
+	if Game.MACHINES.get(_kind, {}).get("produces", "") == "deposit" and deposit == null:
+		return "apunta a un depósito de recursos"
 	var common := _check_area(point)
 	if common != "":
 		return common
 	var size: Vector3 = _ghost.get("footprint")
 	var basis := Basis(Vector3.UP, rot)
-	var exclude := [terrain.get_rid()]
 	if on_floor:
 		# El suelo de la base es plano: solo hace falta que no choque.
 		exclude.append(hit["collider"].get_rid())
@@ -242,7 +256,7 @@ func _snap_cell(point: Vector3, always: bool) -> Dictionary:
 	var best_distance := INF
 	for m in world.modules:
 		for i in 4:
-			if m.open[i]:
+			if m.open[i] != "" or not m.has_port(i):
 				continue
 			var cell: Vector3 = m.global_transform * (Module.side_direction(i) * Module.SIZE)
 			# Puede haber un módulo en diagonal que ocupe ya ese hueco.
@@ -256,10 +270,20 @@ func _snap_cell(point: Vector3, always: bool) -> Dictionary:
 			var d := Vector2(cell.x - point.x, cell.z - point.z).length()
 			if d < best_distance:
 				best_distance = d
-				best = {"xform": Transform3D(m.global_basis, cell)}
+				best = {"xform": Transform3D(m.global_basis, cell), "towards": m.global_position}
 	if best.is_empty() or (not always and best_distance > SNAP_DISTANCE):
 		return {}
-	return best
+	# Se gira en pasos de 90 grados (R) y, si por ese lado no tiene boca, al
+	# siguiente giro que sí la tenga.
+	var xform: Transform3D = best["xform"]
+	var start := roundi(_rotation / (PI / 2.0))
+	var ports: Array = Module.PORTS[_kind]
+	for k in 4:
+		var basis := xform.basis * Basis(Vector3.UP, (start + k) * PI / 2.0)
+		var towards: Vector3 = basis.inverse() * (best["towards"] - xform.origin)
+		if ports.has(Module.side_of(towards)):
+			return {"xform": Transform3D(basis, xform.origin)}
+	return {}
 
 
 ## Coloca la silueta de una puerta o ventana en la pared que se mira.
@@ -276,6 +300,8 @@ func _place_fitting(hit: Dictionary) -> String:
 	_ghost.global_transform = module.global_transform * Transform3D(Basis(Vector3.UP, -side * PI / 2.0), Vector3.ZERO)
 	if String(module.sides[side]) != "pared":
 		return "esa pared ya tiene %s" % ("puerta" if module.sides[side] == "puerta" else "ventana")
+	if module.is_corridor() and _kind == "ventana":
+		return "en los pasillos solo caben puertas"
 	_target_module = module
 	_target_side = side
 	return ""
@@ -331,7 +357,10 @@ func _confirm() -> void:
 		"building":
 			var pos := _ghost.global_position
 			var rot := _ghost.rotation.y
-			world.spawn_machine(Game.register_machine(kind, pos, rot)).sprout()
+			var data := Game.register_machine(kind, pos, rot)
+			if Game.MACHINES[kind].get("produces", "") == "deposit":
+				data["resource"] = _deposit_type
+			world.spawn_machine(data).sprout()
 		"vehicle":
 			var pos := _ghost.global_position
 			var data := {"kind": kind, "x": pos.x, "y": pos.y + 0.3, "z": pos.z, "rot": _ghost.rotation.y, "battery": Rover.BATTERY_MAX}
@@ -339,7 +368,7 @@ func _confirm() -> void:
 			world.spawn_vehicle(data).drop()
 		"module":
 			var pos := _ghost.global_position
-			var data := {"x": pos.x, "y": pos.y, "z": pos.z, "rot": _ghost.rotation.y, "sides": ["pared", "pared", "pared", "pared"]}
+			var data := {"kind": kind, "x": pos.x, "y": pos.y, "z": pos.z, "rot": _ghost.rotation.y, "sides": ["pared", "pared", "pared", "pared"]}
 			Game.modules.append(data)
 			world.spawn_module(data)
 		"fitting":
