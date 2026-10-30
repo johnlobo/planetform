@@ -143,10 +143,10 @@ func _init() -> void:
 	_ranges.frequency = 0.0015
 	_forest.seed = 13
 	_forest.frequency = 0.01
-	_biome_a.seed = 31
-	_biome_a.frequency = 0.0016
-	_biome_b.seed = 37
-	_biome_b.frequency = 0.0016
+	_biome_a.seed = 14
+	_biome_a.frequency = 0.0009
+	_biome_b.seed = 9
+	_biome_b.frequency = 0.0009
 	_plateau.seed = 41
 	_plateau.frequency = 0.012
 	_apply_seed()
@@ -155,7 +155,7 @@ func _init() -> void:
 ## Cambia las semillas de todos los ruidos según world_seed. Con 0 quedan las
 ## de siempre, así que las partidas viejas tienen el mismo mapa.
 func _apply_seed() -> void:
-	var bases := {noise: 7, _hills: 11, _ridges: 3, _ranges: 5, _forest: 13, _biome_a: 31, _biome_b: 37, _plateau: 41}
+	var bases := {noise: 7, _hills: 11, _ridges: 3, _ranges: 5, _forest: 13, _biome_a: 14, _biome_b: 9, _plateau: 41}
 	for n in bases:
 		n.seed = int(bases[n]) + world_seed * 101
 
