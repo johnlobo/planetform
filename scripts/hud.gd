@@ -4,6 +4,7 @@ extends CanvasLayer
 
 const Icons := preload("res://scripts/icons.gd")
 const Machine := preload("res://scripts/machine.gd")
+const Terrain := preload("res://scripts/terrain.gd")
 
 const MESSAGE_TIME := 4.0
 const ICON_SIZE := 56
@@ -19,6 +20,10 @@ const MODE_COLORS := {
 	"desmontar": Color(1.0, 0.45, 0.4),
 }
 const DEATH_FADE_TIME := 3.0
+const MAP_PIXELS := 200 # resolución del mapa por satélite
+const MAP_SIZE := 520.0 # lado del mapa en pantalla
+const SITE_MARKS := {"cueva": Color(1.0, 0.6, 0.15), "nave": Color(0.3, 0.95, 1.0), "crater": Color(1.0, 1.0, 1.0)}
+const SITE_NAMES := {"cueva": "Cueva", "nave": "Resto de nave", "crater": "Cráter"}
 
 var inventory_label: Label
 var planet_label: Label
@@ -40,6 +45,10 @@ var locker_inventory: VBoxContainer
 var locker_contents: VBoxContainer
 var research_panel: PanelContainer
 var research_list: VBoxContainer
+var map_panel: PanelContainer
+var map_marks: Control
+var map_info: RichTextLabel
+var _map_texture: ImageTexture
 var crosshair: Label
 var mine_bar: ProgressBar
 var mode_labels := {}
@@ -149,6 +158,7 @@ func _ready() -> void:
 	_build_menu_panel()
 	_build_locker_panel()
 	_build_research_panel()
+	_build_map_panel()
 	_build_death_screen()
 	icons = Icons.new()
 	add_child(icons)
@@ -178,11 +188,15 @@ func _input(event: InputEvent) -> void:
 	elif _open_panel:
 		var right_click: bool = event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT
 		if event.is_action_pressed("craft") or event.is_action_pressed("pause") \
+				or (event.is_action_pressed("map") and _open_panel == map_panel) \
 				or (event.is_action_pressed("interact") and _open_panel in [locker_panel, research_panel]) or right_click:
 			_close_panel()
 			get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("craft") and not get_tree().paused:
 		_show_menu("")
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("map") and not get_tree().paused and not Game.placing:
+		_on_map_requested()
 		get_viewport().set_input_as_handled()
 
 
@@ -410,6 +424,8 @@ func _refresh_panel() -> void:
 		_refresh_locker()
 	elif _open_panel == research_panel:
 		_refresh_research()
+	elif _open_panel == map_panel:
+		_refresh_map()
 
 
 func _refresh_inventory() -> void:
@@ -601,6 +617,8 @@ func _tooltip(id: String) -> String:
 		tip += "\nLos bancales cercanos dan verduras más rápido"
 	if Game.MACHINES.get(id, {}).get("research", false):
 		tip += "\nE para gastar chips de datos en tecnologías nuevas"
+	if Game.MACHINES.get(id, {}).get("satellite", false):
+		tip += "\nDa conexión con satélites: abre el mapa con M"
 	if Game.MACHINES.get(id, {}).get("teleport", false):
 		tip += "\nE para viajar al siguiente telepuerto (hacen falta dos)"
 	if Game.MACHINES.get(id, {}).has("deposits"):
@@ -699,6 +717,101 @@ func _refresh_research() -> void:
 	hint.custom_minimum_size.x = 520
 	hint.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
 	research_list.add_child(hint)
+
+
+## Mapa por satélite: los biomas del planeta, dónde estás y lo que has
+## visitado. Hace falta un enlace satelital construido.
+func _build_map_panel() -> void:
+	var parts := _panel("Mapa por satélite (M, Tab o Esc para cerrar)")
+	map_panel = parts[0]
+	var frame := Control.new()
+	frame.custom_minimum_size = Vector2(MAP_SIZE, MAP_SIZE)
+	var image := TextureRect.new()
+	image.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	image.stretch_mode = TextureRect.STRETCH_SCALE
+	image.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.add_child(image)
+	map_marks = Control.new()
+	map_marks.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	map_marks.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	map_marks.draw.connect(_draw_map_marks)
+	frame.add_child(map_marks)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	row.add_child(frame)
+	map_info = RichTextLabel.new()
+	map_info.bbcode_enabled = true
+	map_info.custom_minimum_size = Vector2(230, MAP_SIZE)
+	row.add_child(map_info)
+	parts[1].add_child(row)
+	map_panel.set_meta("image", image)
+
+
+func _on_map_requested() -> void:
+	if Game.dead:
+		return
+	if not Game.has_satellite():
+		_show_message("Sin conexión con satélites: construye un enlace satelital (Tecnología).")
+		return
+	_show_panel(map_panel)
+
+
+func _refresh_map() -> void:
+	if _map_texture == null:
+		var land = get_parent().land
+		_map_texture = ImageTexture.create_from_image(land.biome_map(MAP_PIXELS))
+		(map_panel.get_meta("image") as TextureRect).texture = _map_texture
+	var player := get_tree().get_first_node_in_group("player") as Node3D
+	var pos := player.global_position
+	var text := "Estás en: %s\nPosición: %d, %d\n\nBiomas\n" % [Terrain.BIOME_NAMES[Game.biome], roundi(pos.x), roundi(pos.z)]
+	for id in Terrain.BIOME_NAMES:
+		text += "[color=#%s]■[/color] %s\n" % [Terrain.BIOME_MAP_COLORS[id].to_html(false), Terrain.BIOME_NAMES[id]]
+	text += "\nSitios visitados: %d\n● cueva  ■ nave  ○ cráter\n▲ tú  ▪ base" % Game.visited_sites.size()
+	map_info.text = text
+	map_marks.queue_redraw()
+
+
+## Convierte una posición del mundo en un punto del mapa.
+func _map_point(x: float, z: float) -> Vector2:
+	var world := Terrain.WORLD_SIZE
+	return Vector2((x + world / 2.0) / world, (z + world / 2.0) / world) * MAP_SIZE
+
+
+func _draw_map_marks() -> void:
+	var land = get_parent().land
+	var outline := Color(0, 0, 0, 0.85)
+	map_marks.draw_rect(Rect2(Vector2.ZERO, Vector2(MAP_SIZE, MAP_SIZE)), Color(1, 1, 1, 0.5), false, 2.0)
+	for site in land.sites():
+		if not String(site["id"]) in Game.visited_sites:
+			continue
+		var at := _map_point(site["pos"].x, site["pos"].z)
+		var color: Color = SITE_MARKS[site["type"]]
+		match String(site["type"]):
+			"cueva":
+				map_marks.draw_circle(at, 5.0, outline)
+				map_marks.draw_circle(at, 3.5, color)
+			"nave":
+				map_marks.draw_rect(Rect2(at - Vector2(5, 5), Vector2(10, 10)), outline)
+				map_marks.draw_rect(Rect2(at - Vector2(3.5, 3.5), Vector2(7, 7)), color)
+			_:
+				map_marks.draw_arc(at, 4.5, 0.0, TAU, 16, outline, 4.0)
+				map_marks.draw_arc(at, 4.5, 0.0, TAU, 16, color, 2.0)
+	# La base: un cuadrado por módulo (o por máquina, si no hay módulos).
+	var base := Game.modules if not Game.modules.is_empty() else Game.machines
+	for part in base:
+		var at := _map_point(float(part.get("x", 0.0)), float(part.get("z", 0.0)))
+		map_marks.draw_rect(Rect2(at - Vector2(3, 3), Vector2(6, 6)), Color(1.0, 0.85, 0.2))
+	var player := get_tree().get_first_node_in_group("player") as Node3D
+	if player:
+		var at := _map_point(player.global_position.x, player.global_position.z)
+		var facing: Vector3 = player.global_transform.basis * Vector3.FORWARD
+		var dir := Vector2(facing.x, facing.z).normalized()
+		var side := Vector2(-dir.y, dir.x)
+		var tip := at + dir * 10.0
+		var points := PackedVector2Array([tip, at - dir * 6.0 + side * 6.0, at - dir * 3.0, at - dir * 6.0 - side * 6.0])
+		map_marks.draw_colored_polygon(points, Color(1, 1, 1))
+		map_marks.draw_polyline(PackedVector2Array([points[0], points[1], points[2], points[3], points[0]]), outline, 1.5)
 
 
 func _on_locker_requested(locker: Node3D) -> void:

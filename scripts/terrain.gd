@@ -59,6 +59,41 @@ const RAMP_LENGTH := 22.0
 const RAMP_SLOPE := 0.6
 const CAVE_MAX_RISE := 45.0
 const SITE_FLAT := {"nave": 3.0, "crater": 4.0}
+# Biomas: grandes zonas por ruido de baja frecuencia. Desde BIOME_START metros
+# del centro empiezan a mezclarse con la llanura de polvo (el bioma inicial,
+# igual que antes) y a BIOME_FULL ya mandan. BIOME_BLEND es lo ancha que es la
+# franja de mezcla entre dos biomas, en unidades del ruido.
+const BIOME_START := 180.0
+const BIOME_FULL := 260.0
+const BIOME_BLEND := 0.12
+# Orden de los pesos de _biome_weights.
+const BIOME_IDS := ["polvo", "oxido", "hielo", "basalto"]
+const BIOME_NAMES := {
+	"polvo": "Llanura de polvo", "oxido": "Desierto de óxido", "hielo": "Campo de hielo",
+	"basalto": "Mesetas de basalto", "montana": "Montañas nevadas",
+}
+# Color del mapa de cada bioma.
+const BIOME_MAP_COLORS := {
+	"polvo": Color(0.62, 0.58, 0.52), "oxido": Color(0.78, 0.38, 0.22), "hielo": Color(0.72, 0.88, 0.96),
+	"basalto": Color(0.24, 0.25, 0.3), "montana": Color(0.93, 0.95, 1.0),
+}
+# Por bioma [polvo, óxido, hielo, basalto]: multiplica el color del suelo, el de
+# las rocas y la cantidad de árboles. El suelo conserva TINT_KEPT del color de
+# la etapa (el verde de la terraformación) donde no manda la llanura.
+const GROUND_TINT := [Color(1, 1, 1), Color(1.1, 0.55, 0.36), Color(0.88, 0.98, 1.1), Color(0.5, 0.5, 0.56)]
+const ROCK_TINT := [Color(1, 1, 1), Color(1.4, 0.8, 0.62), Color(0.95, 1.05, 1.2), Color(0.6, 0.6, 0.66)]
+const TREE_FACTOR := [1.0, 0.35, 0.15, 0.1]
+const TINT_KEPT := 0.4
+# Qué sale en el suelo llano de cada bioma: probabilidad de [silicio, hierro,
+# cobre, hielo]. La llanura es la de siempre.
+const RESOURCE_MIX := [[0.35, 0.30, 0.20, 0.15], [0.15, 0.55, 0.20, 0.10], [0.20, 0.15, 0.10, 0.55], [0.35, 0.20, 0.35, 0.10]]
+const MIX_TYPES := ["silicio", "hierro", "cobre", "hielo"]
+# Mesetas de basalto: cuánto suben y entre qué valores del ruido pasan de llano a alto.
+const PLATEAU_HEIGHT := 7.0
+const PLATEAU_FROM := -0.1
+const PLATEAU_TO := 0.3
+# Por encima de esta altura el mapa pone "montaña".
+const MOUNTAIN_BIOME_HEIGHT := 28.0
 
 ## El nodo main: crea los recursos y lleva el deshielo.
 var world: Node3D
@@ -77,6 +112,11 @@ var _hills := FastNoiseLite.new()
 var _ridges := FastNoiseLite.new()
 var _ranges := FastNoiseLite.new()
 var _forest := FastNoiseLite.new()
+var _biome_a := FastNoiseLite.new()
+var _biome_b := FastNoiseLite.new()
+var _plateau := FastNoiseLite.new()
+## Semilla de la partida (Game.world_seed): 0 es el mapa de siempre.
+var world_seed := 0
 # Por trozo (Vector2i): {"center", "far", "detail", "shape", "trees", "ice",
 # "site"}. "site" es el sitio recóndito del trozo ({} si no tiene).
 var _chunks := {}
@@ -103,11 +143,27 @@ func _init() -> void:
 	_ranges.frequency = 0.0015
 	_forest.seed = 13
 	_forest.frequency = 0.01
+	_biome_a.seed = 31
+	_biome_a.frequency = 0.0016
+	_biome_b.seed = 37
+	_biome_b.frequency = 0.0016
+	_plateau.seed = 41
+	_plateau.frequency = 0.012
+	_apply_seed()
+
+
+## Cambia las semillas de todos los ruidos según world_seed. Con 0 quedan las
+## de siempre, así que las partidas viejas tienen el mismo mapa.
+func _apply_seed() -> void:
+	var bases := {noise: 7, _hills: 11, _ridges: 3, _ranges: 5, _forest: 13, _biome_a: 31, _biome_b: 37, _plateau: 41}
+	for n in bases:
+		n.seed = int(bases[n]) + world_seed * 101
 
 
 ## Prepara el mapa con el jugador en "around": todas las mallas lejanas y las
 ## detalladas que ya se ven.
 func build(around: Vector3) -> void:
+	_apply_seed()
 	var shader := Shader.new()
 	# El color de cada triángulo va en el vértice; el alfa dice si es suelo, que
 	# se tiñe con el color de la etapa, o roca y nieve, que no cambian.
@@ -219,6 +275,70 @@ func _rebuild_ground(key: Vector2i) -> void:
 
 
 func _noise_height(x: float, z: float) -> float:
+	var h := _base_height(x, z)
+	if Vector2(x, z).length() < BIOME_START:
+		return h
+	var basalt: float = _biome_weights(x, z)[3]
+	if basalt > 0.0:
+		h += basalt * PLATEAU_HEIGHT * smoothstep(PLATEAU_FROM, PLATEAU_TO, _plateau.get_noise_2d(x, z))
+	return h
+
+
+## Pesos de los biomas en un punto, [polvo, óxido, hielo, basalto], que suman 1.
+## Cerca del centro todo es llanura de polvo.
+func _biome_weights(x: float, z: float) -> Array:
+	var far := smoothstep(BIOME_START, BIOME_FULL, Vector2(x, z).length())
+	if far <= 0.0:
+		return [1.0, 0.0, 0.0, 0.0]
+	var a := smoothstep(-BIOME_BLEND, BIOME_BLEND, _biome_a.get_noise_2d(x, z))
+	var b := smoothstep(-BIOME_BLEND, BIOME_BLEND, _biome_b.get_noise_2d(x, z))
+	var rust := a * b * far
+	var basalt := a * (1.0 - b) * far
+	var ice := (1.0 - a) * b * far
+	return [1.0 - rust - basalt - ice, rust, ice, basalt]
+
+
+## Bioma que manda en un punto: una de las BIOME_NAMES. Las zonas altas son
+## montañas, sea cual sea el bioma de debajo.
+func biome_at(x: float, z: float) -> String:
+	if _noise_height(x, z) > MOUNTAIN_BIOME_HEIGHT:
+		return "montana"
+	return BIOME_IDS[_dominant(_biome_weights(x, z))]
+
+
+func _dominant(weights: Array) -> int:
+	var best := 0
+	for k in weights.size():
+		if weights[k] > weights[best]:
+			best = k
+	return best
+
+
+## Mezcla de los colores de la lista según los pesos.
+func _blend(list: Array, weights: Array) -> Color:
+	var c := Color(0, 0, 0)
+	for k in weights.size():
+		c += list[k] * float(weights[k])
+	return c
+
+
+## Imagen del mapa de "size" x "size" píxeles con el color de cada bioma,
+## sombreado por la altura. Norte (-Z) arriba.
+func biome_map(size: int) -> Image:
+	var image := Image.create(size, size, false, Image.FORMAT_RGB8)
+	for j in size:
+		for i in size:
+			var x := -WORLD_SIZE / 2.0 + (i + 0.5) * WORLD_SIZE / size
+			var z := -WORLD_SIZE / 2.0 + (j + 0.5) * WORLD_SIZE / size
+			var h := _noise_height(x, z)
+			var id: String = "montana" if h > MOUNTAIN_BIOME_HEIGHT else BIOME_IDS[_dominant(_biome_weights(x, z))]
+			var shade := 0.82 + 0.18 * clampf(h / 40.0, -0.5, 1.0)
+			var c: Color = BIOME_MAP_COLORS[id] * shade
+			image.set_pixel(i, j, Color(c.r, c.g, c.b))
+	return image
+
+
+func _base_height(x: float, z: float) -> float:
 	var h := noise.get_noise_2d(x, z) * HEIGHT
 	var wild := smoothstep(MOUNTAIN_START, MOUNTAIN_FULL, Vector2(x, z).length())
 	if wild <= 0.0:
@@ -302,7 +422,7 @@ func _load(key: Vector2i) -> void:
 	chunk["shape"] = collision
 	# La misma semilla para cada trozo: al volver, todo está en el mismo sitio.
 	var rng := RandomNumberGenerator.new()
-	rng.seed = hash(key)
+	rng.seed = hash(key) + world_seed * 7919
 	var start := absf(center.x) < START_AREA / 2.0 + CHUNK / 2.0 and absf(center.z) < START_AREA / 2.0 + CHUNK / 2.0
 	# Lo demás no se pone dentro del sitio recóndito, pero se sortea igual
 	# para que no cambie de sitio respecto a antes.
@@ -323,7 +443,7 @@ func site_of(key: Vector2i, center: Vector3) -> Dictionary:
 	if distance < SITE_MIN:
 		return {}
 	var rng := RandomNumberGenerator.new()
-	rng.seed = hash([key.x, key.y, "sitio"])
+	rng.seed = hash([key.x, key.y, "sitio"]) + world_seed * 104729
 	var roll := rng.randf()
 	var type := ""
 	if roll < CAVE_CHANCE:
@@ -453,7 +573,7 @@ func _build_site(chunk: Dictionary, detail: Node3D, key: Vector2i) -> void:
 	if site.is_empty():
 		return
 	var rng := RandomNumberGenerator.new()
-	rng.seed = hash([key.x, key.y, "contenido"])
+	rng.seed = hash([key.x, key.y, "contenido"]) + world_seed * 1299709
 	var id := "%s_%d_%d" % [site["type"], key.x, key.y]
 	var node: Node3D
 	match String(site["type"]):
@@ -490,9 +610,10 @@ func cave_at(pos: Vector3) -> bool:
 ## Todos los sitios recónditos del mapa: [{"type", "pos", "rot"}].
 func sites() -> Array:
 	var list := []
-	for key in _chunks:
-		if not _chunks[key]["site"].is_empty():
-			list.append(_chunks[key]["site"])
+	for key in _sites:
+		var site: Dictionary = _sites[key].duplicate()
+		site["id"] = "%s_%d_%d" % [site["type"], key.x, key.y]
+		list.append(site)
 	return list
 
 
@@ -609,15 +730,27 @@ func _shade(a: Vector3, b: Vector3, c: Vector3, normal: Vector3) -> Color:
 	var mid := (a + b + c) / 3.0
 	var flat := absf(normal.y)
 	var jitter := _hash(mid.x, mid.z) * 0.1 - 0.05
+	var weights := _biome_weights(mid.x, mid.z)
 	if mid.y > SNOW_HEIGHT and flat > 0.6:
 		var s := 0.9 + jitter
 		return Color(s, s + 0.02, s + 0.06, 0.0)
 	if flat < ROCK_SLOPE or mid.y > ROCK_HEIGHT:
 		var r := 0.22 + 0.12 * flat + jitter
-		return Color(r, r * 0.97, r * 1.02, 0.0)
+		var rock := _blend(ROCK_TINT, weights)
+		return Color(r * rock.r, r * 0.97 * rock.g, r * 1.02 * rock.b, 0.0)
 	var height := clampf((mid.y + HEIGHT) / (2.0 * HEIGHT), 0.0, 1.0)
 	var v := 0.7 + 0.2 * flat + 0.15 * height + jitter
-	return Color(v, v, v, 1.0)
+	var ground := _blend(GROUND_TINT, weights)
+	# Donde no manda la llanura, el color de la etapa pesa menos.
+	return Color(v * ground.r, v * ground.g, v * ground.b, 1.0 - (1.0 - TINT_KEPT) * (1.0 - float(weights[0])))
+
+
+## Valor de la lista mezclado según los pesos de los biomas.
+func _blend_number(list: Array, weights: Array) -> float:
+	var total := 0.0
+	for k in weights.size():
+		total += float(list[k]) * float(weights[k])
+	return total
 
 
 ## Número entre 0 y 1 que depende solo del punto.
@@ -642,6 +775,7 @@ func _plant_trees(detail: Node3D, center: Vector3, rng: RandomNumberGenerator) -
 		var x := center.x + rng.randf_range(-CHUNK / 2.0, CHUNK / 2.0)
 		var z := center.z + rng.randf_range(-CHUNK / 2.0, CHUNK / 2.0)
 		var chance := smoothstep(0.0, 0.5, _forest.get_noise_2d(x, z)) * 0.8 + 0.05
+		chance *= _blend_number(TREE_FACTOR, _biome_weights(x, z))
 		var kind := rng.randi() % _tree_meshes.size()
 		var size := rng.randf_range(0.8, 1.8)
 		var turn := rng.randf_range(0.0, TAU)
@@ -673,12 +807,13 @@ func _place_boulders(detail: Node3D, center: Vector3, rng: RandomNumberGenerator
 		var stretch := Vector3(rng.randf_range(0.8, 1.4), rng.randf_range(0.6, 1.1), rng.randf_range(0.8, 1.4))
 		var turn := rng.randf_range(0.0, TAU)
 		var shade := rng.randf_range(0.8, 1.15)
+		var rock := _blend(ROCK_TINT, _biome_weights(x, z))
 		var y: float = world.surface_height(x, z)
 		var rocky := y > ROCK_HEIGHT or _slope(x, z) < ROCK_SLOPE
 		if (not rocky and rng.randf() > 0.3) or _in_site(x, z):
 			continue
 		var basis := Basis(Vector3.UP, turn).scaled(stretch * size)
-		list.append([Transform3D(basis, Vector3(x, y - 0.3 * size, z) - center), Color(shade, shade, shade)])
+		list.append([Transform3D(basis, Vector3(x, y - 0.3 * size, z) - center), Color(shade * rock.r, shade * rock.g, shade * rock.b)])
 		var sphere := SphereShape3D.new()
 		sphere.radius = 0.75 * size * minf(stretch.x, stretch.z)
 		var collision := CollisionShape3D.new()
@@ -703,11 +838,12 @@ func _place_resources(chunk: Dictionary, detail: Node3D, center: Vector3, rng: R
 		var y: float = world.surface_height(x, z)
 		if _slope(x, z) < 0.7 or _in_site(x, z):
 			continue
+		var weights := _biome_weights(x, z)
 		var type := ""
 		if y > ROCK_HEIGHT:
 			type = "hielo" if roll < 0.4 else ("hierro" if roll < 0.7 else "cobre")
 		else:
-			type = "silicio" if roll < 0.35 else ("hierro" if roll < 0.65 else ("cobre" if roll < 0.85 else "hielo"))
+			type = _flat_resource(roll, weights)
 		var node: ResourceNode = world.make_resource(type)
 		node.position = Vector3(x, y, z) - center
 		node.rotation.y = turn
@@ -716,9 +852,21 @@ func _place_resources(chunk: Dictionary, detail: Node3D, center: Vector3, rng: R
 			chunk["ice"].append(node)
 			# Funde antes el más bajo; el de las cumbres no se funde nunca.
 			var start := INF
-			if y < ICE_SUMMIT:
+			# El hielo del campo de hielo es permanente y no se funde.
+			if y < ICE_SUMMIT and float(weights[2]) < 0.5:
 				start = (1.0 - world.MELT_TIME) * clampf(inverse_lerp(-HEIGHT, ICE_SUMMIT, y), 0.0, 1.0)
 			world.add_ice(node, start)
+
+
+## Recurso del suelo llano para una tirada de 0 a 1 según los biomas.
+func _flat_resource(roll: float, weights: Array) -> String:
+	var total := 0.0
+	for k in MIX_TYPES.size():
+		for b in weights.size():
+			total += float(RESOURCE_MIX[b][k]) * float(weights[b])
+		if roll < total:
+			return MIX_TYPES[k]
+	return MIX_TYPES[MIX_TYPES.size() - 1]
 
 
 func _multimesh(mesh: Mesh, list: Array) -> MultiMeshInstance3D:

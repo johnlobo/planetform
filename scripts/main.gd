@@ -64,6 +64,9 @@ var placer: Node3D
 var modules: Array[Module] = []
 var _shelter_explained := false
 var _cave_dark := 0.0 # de 0 fuera a 1 dentro de una cueva
+var _site_check := 0.0
+const SITE_VISIT_RANGE := 30.0 # metros a los que un sitio recóndito cuenta como visitado
+const ICE_FIELD_COLD := 1.5 # veces más frío de noche en el campo de hielo
 
 var sky_colors := Gradient.new()
 var ground_colors := Gradient.new()
@@ -73,6 +76,9 @@ func _ready() -> void:
 	rng.seed = 42
 	deco_rng.seed = 99
 	var loaded := Game.load_game()
+	# Una partida nueva sortea su mapa; las de antes siguen con el de siempre.
+	if Game.world_seed < 0:
+		Game.world_seed = randi_range(1, 99999)
 	_setup_gradients()
 	_build_environment()
 	_build_water()
@@ -80,6 +86,7 @@ func _ready() -> void:
 	_build_rain()
 	land = Terrain.new()
 	land.world = self
+	land.world_seed = Game.world_seed
 	# Primero los depósitos: los trozos del terreno también los usan.
 	_spawn_resources()
 	_build_terrain()
@@ -137,6 +144,10 @@ func _process(delta: float) -> void:
 	environment.ambient_light_energy = lerpf(0.6, 0.35, night)
 	# Dentro de una cueva apenas llega luz de fuera: hace falta la linterna.
 	Game.in_cave = land.cave_at(player.global_position)
+	_site_check -= delta
+	if _site_check <= 0.0:
+		_site_check = 0.5
+		_update_location()
 	_cave_dark = move_toward(_cave_dark, 1.0 if Game.in_cave else 0.0, delta * 2.0)
 	environment.ambient_light_energy *= lerpf(1.0, 0.06, _cave_dark)
 	land.material.set_shader_parameter("tint", ground_colors.sample(t))
@@ -163,6 +174,17 @@ func _process(delta: float) -> void:
 		_water_level = move_toward(_water_level, _target_water_level(), WATER_SPEED * delta)
 		water.position.y = _water_level
 		_update_melting()
+
+
+## Anota el bioma en el que está el jugador y los sitios recónditos que ve cerca.
+func _update_location() -> void:
+	var pos := player.global_position
+	Game.biome = land.biome_at(pos.x, pos.z)
+	Game.cold_factor = ICE_FIELD_COLD if Game.biome == "hielo" else 1.0
+	for site in land.sites():
+		var at: Vector3 = site["pos"]
+		if Vector2(pos.x - at.x, pos.z - at.z).length() < SITE_VISIT_RANGE:
+			Game.visit_site(String(site["id"]))
 
 
 ## Progreso del Deshielo según el índice: 0 al empezar, 1 en el índice dado.
