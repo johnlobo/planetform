@@ -480,7 +480,11 @@ func cave_at(pos: Vector3) -> bool:
 	if site.is_empty() or site["type"] != "cueva":
 		return false
 	var offset: Vector3 = pos - site["pos"]
-	return Vector2(offset.x, offset.z).length() < Sites.CAVE_RADIUS * 0.8 and offset.y < Sites.CAVE_HEIGHT
+	if Vector2(offset.x, offset.z).length() < Sites.CAVE_RADIUS * 0.8 and offset.y < Sites.CAVE_HEIGHT:
+		return true
+	# En el túnel de la entrada también, salvo en los últimos metros.
+	var local := Basis(Vector3.UP, -float(site["rot"])) * offset
+	return absf(local.x) < 4.0 and local.z > 0.0 and local.z < Sites.TUNNEL_END - 2.0 and local.y < 5.0
 
 
 ## Todos los sitios recónditos del mapa: [{"type", "pos", "rot"}].

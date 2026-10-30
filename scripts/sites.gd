@@ -2,8 +2,9 @@ extends RefCounted
 ## Sitios recónditos del mapa, lejos de la base: cuevas con titanio y cuarzo,
 ## restos de naves con cajas de suministros y cráteres con un meteorito de
 ## iridio. El terreno es una sola superficie de alturas y no puede tener
-## huecos, así que las cuevas son una bóveda de roca metida en la ladera de
-## una montaña: el terreno excava su suelo y la boca (Terrain._carve).
+## huecos, así que las cuevas son una sala de roca gruesa metida en la ladera
+## de una montaña, con un túnel de entrada: el terreno excava el suelo y la
+## rampa (Terrain._carve).
 
 const LootCrate := preload("res://scripts/loot_crate.gd")
 
@@ -14,6 +15,15 @@ const CAVE_RINGS := 6
 # Anillos de abajo que se quitan en la boca y ángulo de la boca a cada lado.
 const MOUTH_RINGS := 3
 const MOUTH_ANGLE := 0.35
+# Grosor de la roca de la sala y túnel de entrada, que baja por la rampa.
+const ROCK := 3.0
+const TUNNEL_START := 9.5
+const TUNNEL_END := CAVE_RADIUS + 10.0
+const TUNNEL_STEPS := 6
+# Sección del túnel por dentro y por fuera (x, y), con los mismos puntos
+# para poder cerrar las dos caras de la entrada.
+const TUNNEL_INNER := [Vector2(-4.6, -0.5), Vector2(-4.6, 3.0), Vector2(-3.6, 4.3), Vector2(0, 4.8), Vector2(3.6, 4.3), Vector2(4.6, 3.0), Vector2(4.6, -0.5)]
+const TUNNEL_OUTER := [Vector2(-8.0, -6.0), Vector2(-8.0, 5.0), Vector2(-5.5, 7.0), Vector2(0, 7.5), Vector2(5.5, 7.0), Vector2(8.0, 5.0), Vector2(8.0, -6.0)]
 const CRATER_RADIUS := 11.0
 const CRATER_DEPTH := 6.0 # metros que se hunde el centro
 const CRATER_RIM := 1.5 # y lo que se levanta el borde
@@ -33,37 +43,11 @@ static func cave(world: Node3D, pos: Vector3, rot: float, center: Vector3, id: S
 	var faces := PackedVector3Array()
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	# Bóveda de anillos desde algo por debajo del suelo hasta arriba, con los
-	# vértices movidos al azar para que parezca roca.
-	var points := []
-	for i in CAVE_RINGS + 1:
-		var ring := []
-		var phi := lerpf(-0.25, 1.0, float(i) / CAVE_RINGS) * PI / 2.0
-		for j in CAVE_SEGMENTS:
-			var theta := j * TAU / CAVE_SEGMENTS
-			# Los dos anillos de abajo, sin mover: rodean justo el suelo excavado.
-			var jitter := 1.0 if i <= 1 or i == CAVE_RINGS else rng.randf_range(0.85, 1.12)
-			ring.append(Vector3(sin(theta) * cos(phi) * CAVE_RADIUS * jitter, sin(phi) * CAVE_HEIGHT * jitter, cos(theta) * cos(phi) * CAVE_RADIUS * jitter))
-		points.append(ring)
-	for i in CAVE_RINGS:
-		for j in CAVE_SEGMENTS:
-			var mid := (j + 0.5) * TAU / CAVE_SEGMENTS
-			var off := minf(mid, TAU - mid)
-			if i < MOUTH_RINGS and off < MOUTH_ANGLE:
-				continue # la boca, mirando hacia +Z
-			var k := (j + 1) % CAVE_SEGMENTS
-			var a: Vector3 = points[i][j]
-			var b: Vector3 = points[i][k]
-			var c: Vector3 = points[i + 1][j]
-			var d: Vector3 = points[i + 1][k]
-			for tri in [[a, c, b], [b, c, d]]:
-				var normal: Vector3 = (tri[2] - tri[0]).cross(tri[1] - tri[0]).normalized()
-				var shade := rng.randf_range(0.85, 1.1)
-				for v in tri:
-					st.set_normal(normal)
-					st.set_color(Color(0.34 * shade, 0.31 * shade, 0.3 * shade))
-					st.add_vertex(v)
-					faces.append(v)
+	# La sala es una bóveda con otra por fuera, ROCK metros más grande, para
+	# que la piedra tenga grosor. Se entra por un túnel de roca maciza.
+	_dome(st, faces, CAVE_RADIUS, CAVE_HEIGHT, rng)
+	_dome(st, faces, CAVE_RADIUS + ROCK, CAVE_HEIGHT + ROCK, rng)
+	_tunnel(world, st, faces, pos, basis, rng)
 	var material := StandardMaterial3D.new()
 	material.vertex_color_use_as_albedo = true
 	material.roughness = 1.0
@@ -200,6 +184,73 @@ static func crater(world: Node3D, pos: Vector3, rot: float, center: Vector3, bou
 	root.add_child(glow)
 	return root
 
+
+
+## Bóveda de anillos desde algo por debajo del suelo hasta arriba, con los
+## vértices movidos al azar para que parezca roca y la boca hacia +Z.
+static func _dome(st: SurfaceTool, faces: PackedVector3Array, radius: float, height: float, rng: RandomNumberGenerator) -> void:
+	var points := []
+	for i in CAVE_RINGS + 1:
+		var ring := []
+		var phi := lerpf(-0.25, 1.0, float(i) / CAVE_RINGS) * PI / 2.0
+		for j in CAVE_SEGMENTS:
+			var theta := j * TAU / CAVE_SEGMENTS
+			# Sin mover: los dos anillos de abajo, que rodean justo el suelo
+			# excavado, el de arriba y el borde de la boca, que encaja con el túnel.
+			var fixed := i <= 1 or i == CAVE_RINGS or (i <= MOUTH_RINGS and minf(theta, TAU - theta) < 0.8)
+			var jitter := 1.0 if fixed else rng.randf_range(0.85, 1.12)
+			ring.append(Vector3(sin(theta) * cos(phi) * radius * jitter, sin(phi) * height * jitter, cos(theta) * cos(phi) * radius * jitter))
+		points.append(ring)
+	for i in CAVE_RINGS:
+		for j in CAVE_SEGMENTS:
+			var mid := (j + 0.5) * TAU / CAVE_SEGMENTS
+			if i < MOUTH_RINGS and minf(mid, TAU - mid) < MOUTH_ANGLE:
+				continue # la boca
+			var k := (j + 1) % CAVE_SEGMENTS
+			_quad(st, faces, points[i][j], points[i][k], points[i + 1][j], points[i + 1][k], rng)
+
+
+## Túnel de la boca hasta fuera: pared de dentro, pared de fuera y las dos
+## caras que las unen, así se ve el grosor de la roca. El suelo sigue la
+## rampa que excava el terreno.
+static func _tunnel(world: Node3D, st: SurfaceTool, faces: PackedVector3Array, pos: Vector3, basis: Basis, rng: RandomNumberGenerator) -> void:
+	var inner := []
+	var outer := []
+	for k in TUNNEL_STEPS + 1:
+		var z := lerpf(TUNNEL_START, TUNNEL_END, float(k) / TUNNEL_STEPS)
+		var global := pos + basis * Vector3(0, 0, z)
+		var floor_y: float = world.surface_height(global.x, global.z) - pos.y
+		var ring_in := []
+		var ring_out := []
+		for n in TUNNEL_INNER.size():
+			var a: Vector2 = TUNNEL_INNER[n]
+			var b: Vector2 = TUNNEL_OUTER[n]
+			# Lo de abajo, que toca el suelo, no se mueve.
+			var edge := n == 0 or n == TUNNEL_INNER.size() - 1
+			var wobble := Vector3.ZERO if edge else Vector3(rng.randf_range(-0.25, 0.25), rng.randf_range(-0.25, 0.25), 0)
+			ring_in.append(Vector3(a.x, a.y + floor_y, z) + wobble)
+			wobble = Vector3.ZERO if edge else Vector3(rng.randf_range(-0.6, 0.6), rng.randf_range(-0.6, 0.6), rng.randf_range(-0.5, 0.5))
+			ring_out.append(Vector3(b.x, b.y + floor_y, z) + wobble)
+		inner.append(ring_in)
+		outer.append(ring_out)
+	for k in TUNNEL_STEPS:
+		for n in TUNNEL_INNER.size() - 1:
+			_quad(st, faces, inner[k][n], inner[k][n + 1], inner[k + 1][n], inner[k + 1][n + 1], rng)
+			_quad(st, faces, outer[k][n], outer[k][n + 1], outer[k + 1][n], outer[k + 1][n + 1], rng)
+	for k in [0, TUNNEL_STEPS]:
+		for n in TUNNEL_INNER.size() - 1:
+			_quad(st, faces, inner[k][n], inner[k][n + 1], outer[k][n], outer[k][n + 1], rng)
+
+
+static func _quad(st: SurfaceTool, faces: PackedVector3Array, a: Vector3, b: Vector3, c: Vector3, d: Vector3, rng: RandomNumberGenerator) -> void:
+	for tri in [[a, c, b], [b, c, d]]:
+		var normal: Vector3 = (tri[2] - tri[0]).cross(tri[1] - tri[0]).normalized()
+		var shade := rng.randf_range(0.85, 1.1)
+		for v in tri:
+			st.set_normal(normal)
+			st.set_color(Color(0.34 * shade, 0.31 * shade, 0.3 * shade))
+			st.add_vertex(v)
+			faces.append(v)
 
 static func _deposit(world: Node3D, root: Node3D, type: String, local: Vector3, pos: Vector3, basis: Basis, rng: RandomNumberGenerator) -> void:
 	var global := pos + basis * local

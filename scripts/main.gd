@@ -158,7 +158,7 @@ func _process(delta: float) -> void:
 	rain_drops.global_position = player.global_position + Vector3(0, 14, 0)
 	# Bajo techo no llueve; las gotas no saben de techos y se esconden.
 	rain_drops.emitting = rain > 0.2
-	rain_drops.visible = not Game.sheltered
+	rain_drops.visible = not Game.sheltered and not Game.in_cave
 	if water.visible:
 		_water_level = move_toward(_water_level, _target_water_level(), WATER_SPEED * delta)
 		water.position.y = _water_level

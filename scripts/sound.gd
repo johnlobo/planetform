@@ -83,7 +83,7 @@ func _process(delta: float) -> void:
 	_wind_level = move_toward(_wind_level, target, 0.05 * delta)
 	_wind.volume_db = linear_to_db(maxf(_wind_level, 0.0001))
 	var rain := 0.0 if get_tree().paused else Game.rain()
-	var rain_db := RAIN_DB + (RAIN_SHELTER_DB if Game.sheltered else 0.0)
+	var rain_db := RAIN_DB + (RAIN_SHELTER_DB if Game.sheltered or Game.in_cave else 0.0)
 	_rain.volume_db = linear_to_db(maxf(rain * db_to_linear(rain_db), 0.0001))
 
 
