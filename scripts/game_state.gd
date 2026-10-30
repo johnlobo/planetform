@@ -17,6 +17,7 @@ signal driving_changed(driving: bool)
 signal crate_opened(text: String)
 signal research_requested
 signal unlocks_changed
+signal map_requested
 
 const RESOURCE_NAMES := {
 	"hierro": "Hierro",
@@ -110,6 +111,8 @@ const RECIPES := {
 	"terminal": {"name": "Terminal de investigación", "cost": {"hierro": 3, "silicio": 2, "cobre": 1}, "kind": "building", "stage": 0, "tab": "construccion"},
 	# Tecnologías avanzadas: piden materiales de las cuevas y los cráteres.
 	"geotermico": {"name": "Generador geotérmico", "cost": {"hierro": 4, "placa": 2, "circuito": 2}, "kind": "building", "stage": 0, "tab": "tecnologia", "unlock": {"chips": 2}},
+	# Conexión con satélites: da servicios, el primero el mapa (M).
+	"antena": {"name": "Enlace satelital", "cost": {"hierro": 2, "placa": 2, "circuito": 2}, "kind": "building", "stage": 0, "tab": "tecnologia", "unlock": {"fragments": 3}},
 	"telepuerto": {"name": "Telepuerto", "cost": {"placa": 3, "circuito": 3, "iridio": 2}, "kind": "building", "stage": 0, "tab": "tecnologia", "unlock": {"fragments": 3}},
 	"extractor_titanio": {"name": "Extractor de titanio", "cost": {"placa": 3, "circuito": 2}, "kind": "building", "stage": 0, "tab": "tecnologia", "unlock": {"chips": 4}},
 	"liberador": {"name": "Liberador de gases de efecto invernadero", "cost": {"placa": 3, "circuito": 2}, "kind": "building", "stage": 0, "tab": "terraformacion", "unlock": {"index": 35.0}},
@@ -178,6 +181,8 @@ const MACHINES := {
 	# Tecnologías avanzadas. El terminal se usa con E para investigar y el
 	# telepuerto, para ir al siguiente telepuerto ("teleport").
 	"terminal": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "research": true},
+	# Con una antena construida se abre el mapa por satélite ("satellite").
+	"antena": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "satellite": true},
 	"geotermico": {"energy": 6, "oxygen": 0, "temperature": 0, "biomass": 0},
 	"telepuerto": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 0, "teleport": true},
 	"extractor_titanio": {"deposits": ["titanio"], "energy": -2, "oxygen": 0, "temperature": 0, "biomass": 0, "storage": 15, "produces": "deposit", "produce_time": 20.0},
@@ -286,6 +291,14 @@ var fragments := {}
 var opened_crates: Array = []
 # true con el jugador dentro de una cueva: se ve todo más oscuro.
 var in_cave := false
+## Semilla del mapa: 0 es el mapa de siempre (partidas viejas); negativa, aún
+## sin elegir (una partida nueva la sortea al empezar).
+var world_seed := -1
+## Sitios recónditos que el jugador ha visitado (los ids de Terrain.sites()).
+var visited_sites: Array = []
+## Bioma en el que está el jugador y cuánto frío extra hace de noche en él.
+var biome := "polvo"
+var cold_factor := 1.0
 # Combustible de los propulsores, de 0 a JETPACK_FUEL_MAX.
 var jetpack_fuel := 100.0
 # Número de construcciones colocadas de cada tipo.
@@ -442,7 +455,7 @@ func _update_day_and_cold(delta: float) -> void:
 
 	if night and not sheltered and not _near_heater():
 		# Cuanto más caliente está el planeta, menos frío hace de noche.
-		warmth -= WARMTH_DRAIN * (1.0 - temperature / 100.0) * delta
+		warmth -= WARMTH_DRAIN * (1.0 - temperature / 100.0) * cold_factor * delta
 	else:
 		warmth += WARMTH_REGEN * delta
 	warmth = clampf(warmth, 0.0, WARMTH_MAX)
@@ -776,6 +789,22 @@ func _announce(id: String) -> void:
 	unlocks_changed.emit()
 
 
+## true si hay una antena construida: el enlace con los satélites.
+func has_satellite() -> bool:
+	for kind in machine_counts:
+		if MACHINES[kind].get("satellite", false) and int(machine_counts[kind]) > 0:
+			return true
+	return false
+
+
+## Anota un sitio recóndito como visitado. Devuelve true si es la primera vez.
+func visit_site(id: String) -> bool:
+	if id in visited_sites:
+		return false
+	visited_sites.append(id)
+	return true
+
+
 ## Enciende o apaga la linterna, si se tiene.
 func toggle_flashlight() -> void:
 	if not has_flashlight:
@@ -971,6 +1000,8 @@ func save_game() -> void:
 		"found": found,
 		"fragments": fragments,
 		"opened_crates": opened_crates,
+		"world_seed": world_seed,
+		"visited_sites": visited_sites,
 		"oxygen": oxygen,
 		"temperature": temperature,
 		"biomass": biomass,
@@ -1046,6 +1077,10 @@ func load_game() -> bool:
 				fragments[String(id)] = int(saved_fragments[id])
 	for id in data.get("opened_crates", []):
 		opened_crates.append(String(id))
+	# Las partidas de antes del mapa por satélite tienen el mapa fijo (semilla 0).
+	world_seed = int(data.get("world_seed", 0))
+	for id in data.get("visited_sites", []):
+		visited_sites.append(String(id))
 	oxygen = float(data.get("oxygen", 0.0))
 	temperature = float(data.get("temperature", 0.0))
 	biomass = float(data.get("biomass", 0.0))
@@ -1114,6 +1149,10 @@ func _reset_state() -> void:
 	found = []
 	fragments = {}
 	opened_crates = []
+	world_seed = -1
+	visited_sites = []
+	biome = "polvo"
+	cold_factor = 1.0
 	in_cave = false
 	jetpack_fuel = JETPACK_FUEL_MAX
 	machine_counts = {}
@@ -1165,6 +1204,7 @@ func _setup_input() -> void:
 	_add_key("rotate_building", [KEY_R])
 	_add_key("interact", [KEY_E])
 	_add_key("flashlight", [KEY_L])
+	_add_key("map", [KEY_M])
 	_add_key("tool_recoger", [KEY_1])
 	_add_key("tool_construir", [KEY_2])
 	_add_key("tool_desmontar", [KEY_3])

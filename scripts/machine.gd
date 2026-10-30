@@ -807,6 +807,31 @@ func setup(machine_kind: String) -> void:
 				blade.size = Vector3(1.6, 0.05, 0.25)
 				var part := _mesh(blade, Vector3.ZERO, gas, _rotor)
 				part.rotation_degrees = Vector3(10.0, k * 60.0, 0)
+		"antena":
+			# Mástil con una parabólica inclinada hacia el cielo y una luz roja.
+			var mast := CylinderMesh.new()
+			mast.top_radius = 0.12
+			mast.bottom_radius = 0.2
+			mast.height = 2.6
+			mast.radial_segments = 6
+			mesh_instance.mesh = mast
+			mesh_instance.position.y = 1.3
+			material.albedo_color = Color(0.8, 0.82, 0.86)
+			material.metallic = 0.5
+			shape.size = Vector3(1.6, 3.4, 1.6)
+			_detail(Vector3(1.0, 0.25, 1.0), Vector3(0, 0.12, 0), material)
+			var dish := CylinderMesh.new()
+			dish.top_radius = 0.9
+			dish.bottom_radius = 0.05
+			dish.height = 0.35
+			dish.radial_segments = 8
+			var dish_part := _mesh(dish, Vector3(0, 2.9, 0), material)
+			dish_part.rotation_degrees = Vector3(-50.0, 0, 0)
+			var signal_light := StandardMaterial3D.new()
+			signal_light.albedo_color = Color(1.0, 0.3, 0.25)
+			signal_light.emission_enabled = true
+			signal_light.emission = Color(1.0, 0.2, 0.15)
+			_detail(Vector3(0.12, 0.12, 0.12), Vector3(0, 2.68, 0), signal_light)
 	mesh_instance.material_override = material
 	add_child(mesh_instance)
 	var collision := CollisionShape3D.new()
@@ -1153,6 +1178,8 @@ func get_hint() -> String:
 		recipe_name = "Extractor de %s" % String(Game.RESOURCE_NAMES[produced_resource()]).to_lower()
 	if Game.MACHINES[kind].get("research", false):
 		return "%s · %d chips · E o clic para investigar" % [recipe_name, int(Game.inventory.get("chip", 0))]
+	if Game.MACHINES[kind].get("satellite", false):
+		return "%s · conectado con los satélites · M abre el mapa" % recipe_name
 	if Game.MACHINES[kind].get("teleport", false):
 		return "%s · E o clic para viajar al siguiente telepuerto" % recipe_name
 	if is_usable():
