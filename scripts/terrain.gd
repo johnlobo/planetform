@@ -9,6 +9,7 @@ extends Node3D
 ## las montañas empiezan más lejos para que las bases guardadas no cambien.
 
 const ResourceNode := preload("res://scripts/resource_node.gd")
+const Sites := preload("res://scripts/sites.gd")
 
 const WORLD_SIZE := 2000.0
 const CHUNK := 100.0
@@ -39,6 +40,19 @@ const TREE_TRIES := 100 # sitios que se prueban por trozo
 const BOULDER_TRIES := 14
 const RESOURCES_PER_CHUNK := 6
 const ICE_SUMMIT := 12.0 # el hielo por encima no se funde
+# Sitios recónditos (scripts/sites.gd): como mucho uno por trozo y solo a
+# partir de SITE_MIN metros del centro. Probabilidad de cada uno por trozo;
+# las cuevas, más en las montañas, y los cráteres, solo lejos.
+const SITE_MIN := 250.0
+const WRECK_MIN := 300.0
+const CRATER_MIN := 600.0
+const CAVE_CHANCE := 0.12
+const CAVE_MOUNTAIN_CHANCE := 0.3
+const WRECK_CHANCE := 0.1
+const CRATER_CHANCE := 0.1
+const SITE_TRIES := 24
+# Diferencia de altura máxima bajo el sitio para que quepa.
+const SITE_FLAT := {"cueva": 4.0, "nave": 3.0, "crater": 3.0}
 
 ## El nodo main: crea los recursos y lleva el deshielo.
 var world: Node3D
@@ -57,12 +71,15 @@ var _hills := FastNoiseLite.new()
 var _ridges := FastNoiseLite.new()
 var _ranges := FastNoiseLite.new()
 var _forest := FastNoiseLite.new()
-# Por trozo (Vector2i): {"center", "far", "detail", "shape", "trees", "ice"}.
+# Por trozo (Vector2i): {"center", "far", "detail", "shape", "trees", "ice",
+# "site"}. "site" es el sitio recóndito del trozo ({} si no tiene).
 var _chunks := {}
 var _tree_meshes: Array[Mesh] = []
 var _boulder_mesh: Mesh
 var _deco_material := StandardMaterial3D.new()
 var _check_time := 0.0
+# Sitio recóndito del trozo que se está preparando.
+var _avoid := {}
 
 
 func _init() -> void:
@@ -111,7 +128,7 @@ void fragment() {
 			far.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			far.position = center
 			add_child(far)
-			_chunks[key] = {"center": center, "far": far, "detail": null, "shape": null, "trees": null, "ice": []}
+			_chunks[key] = {"center": center, "far": far, "detail": null, "shape": null, "trees": null, "ice": [], "site": site_of(key, center)}
 	for key in _chunks:
 		if _distance(_chunks[key], around) < NEAR_RANGE:
 			_load(key)
@@ -272,10 +289,109 @@ func _load(key: Vector2i) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(key)
 	var start := absf(center.x) < START_AREA / 2.0 + CHUNK / 2.0 and absf(center.z) < START_AREA / 2.0 + CHUNK / 2.0
+	# Lo demás no se pone dentro del sitio recóndito, pero se sortea igual
+	# para que no cambie de sitio respecto a antes.
+	_avoid = chunk["site"]
 	chunk["trees"] = _plant_trees(detail, center, rng)
 	if not start:
 		_place_boulders(detail, center, rng)
 		_place_resources(chunk, detail, center, rng)
+	_avoid = {}
+	_build_site(chunk, detail, key)
+
+
+## El sitio recóndito de un trozo: {"type", "pos", "rot"} o {} si no hay.
+## Depende solo del trozo, así que siempre sale igual.
+func site_of(key: Vector2i, center: Vector3) -> Dictionary:
+	var distance := Vector2(center.x, center.z).length()
+	if distance < SITE_MIN:
+		return {}
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([key.x, key.y, "sitio"])
+	var roll := rng.randf()
+	var mountain := smoothstep(MOUNTAIN_START, MOUNTAIN_FULL, distance) * smoothstep(-0.1, 0.35, _ranges.get_noise_2d(center.x, center.z))
+	var cave_chance := lerpf(CAVE_CHANCE, CAVE_MOUNTAIN_CHANCE, mountain)
+	var type := ""
+	if roll < cave_chance:
+		type = "cueva"
+	elif roll < cave_chance + WRECK_CHANCE and distance >= WRECK_MIN:
+		type = "nave"
+	elif roll < cave_chance + WRECK_CHANCE + CRATER_CHANCE and distance >= CRATER_MIN:
+		type = "crater"
+	if type == "":
+		return {}
+	var radius: float = Sites.RADIUS[type]
+	var margin := radius + 2.0
+	for n in SITE_TRIES:
+		var x := center.x + rng.randf_range(-CHUNK / 2.0 + margin, CHUNK / 2.0 - margin)
+		var z := center.z + rng.randf_range(-CHUNK / 2.0 + margin, CHUNK / 2.0 - margin)
+		var rot := rng.randf_range(0.0, TAU)
+		var low := INF
+		var high := -INF
+		for k in 9:
+			var p := Vector2(x, z) if k == 8 else Vector2(x, z) + Vector2.from_angle(k * TAU / 8.0) * radius
+			var h := height_at(p.x, p.y)
+			low = minf(low, h)
+			high = maxf(high, h)
+		if high - low > float(SITE_FLAT[type]) or low < DRY_LEVEL + 0.5:
+			continue
+		# La cueva va a media altura y algo hundida: su borde baja casi 3 m
+		# bajo el suelo, así que no quedan rendijas por el lado más bajo.
+		var y := (low + high) / 2.0 - 0.3 if type == "cueva" else height_at(x, z)
+		return {"type": type, "pos": Vector3(x, y, z), "rot": rot}
+	return {}
+
+
+func _build_site(chunk: Dictionary, detail: Node3D, key: Vector2i) -> void:
+	var site: Dictionary = chunk["site"]
+	if site.is_empty():
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([key.x, key.y, "contenido"])
+	var id := "%s_%d_%d" % [site["type"], key.x, key.y]
+	var node: Node3D
+	match String(site["type"]):
+		"cueva":
+			node = Sites.cave(world, site["pos"], site["rot"], chunk["center"], id, rng)
+		"nave":
+			node = Sites.wreck(world, site["pos"], site["rot"], chunk["center"], id, rng)
+		"crater":
+			node = Sites.crater(world, site["pos"], site["rot"], chunk["center"], _boulder_mesh, rng)
+	detail.add_child(node)
+
+
+## Prepara ya los trozos que se ven desde pos, sin repartirlo en fotogramas.
+func load_around(pos: Vector3) -> void:
+	_update(pos, INF)
+
+
+## true si el punto está dentro de una cueva.
+func cave_at(pos: Vector3) -> bool:
+	var key := _chunk_key(pos.x, pos.z)
+	if not _chunks.has(key):
+		return false
+	var site: Dictionary = _chunks[key]["site"]
+	if site.is_empty() or site["type"] != "cueva":
+		return false
+	var offset: Vector3 = pos - site["pos"]
+	return Vector2(offset.x, offset.z).length() < Sites.CAVE_RADIUS * 0.8 and offset.y < Sites.CAVE_HEIGHT
+
+
+## Todos los sitios recónditos del mapa: [{"type", "pos", "rot"}].
+func sites() -> Array:
+	var list := []
+	for key in _chunks:
+		if not _chunks[key]["site"].is_empty():
+			list.append(_chunks[key]["site"])
+	return list
+
+
+## true si el punto cae dentro del sitio que se está evitando.
+func _in_site(x: float, z: float) -> bool:
+	if _avoid.is_empty():
+		return false
+	var pos: Vector3 = _avoid["pos"]
+	return Vector2(x - pos.x, z - pos.z).length() < float(Sites.RADIUS[_avoid["type"]])
 
 
 func _unload(key: Vector2i) -> void:
@@ -420,7 +536,7 @@ func _plant_trees(detail: Node3D, center: Vector3, rng: RandomNumberGenerator) -
 		var size := rng.randf_range(0.8, 1.8)
 		var turn := rng.randf_range(0.0, TAU)
 		var shade := Color.from_hsv(rng.randf_range(0.22, 0.36), rng.randf_range(0.0, 0.25), rng.randf_range(0.85, 1.1))
-		if rng.randf() > chance:
+		if rng.randf() > chance or _in_site(x, z):
 			continue
 		var y: float = world.surface_height(x, z)
 		if y < DRY_LEVEL or y > TREE_LINE or _slope(x, z) < 0.85:
@@ -449,7 +565,7 @@ func _place_boulders(detail: Node3D, center: Vector3, rng: RandomNumberGenerator
 		var shade := rng.randf_range(0.8, 1.15)
 		var y: float = world.surface_height(x, z)
 		var rocky := y > ROCK_HEIGHT or _slope(x, z) < ROCK_SLOPE
-		if not rocky and rng.randf() > 0.3:
+		if (not rocky and rng.randf() > 0.3) or _in_site(x, z):
 			continue
 		var basis := Basis(Vector3.UP, turn).scaled(stretch * size)
 		list.append([Transform3D(basis, Vector3(x, y - 0.3 * size, z) - center), Color(shade, shade, shade)])
@@ -475,7 +591,7 @@ func _place_resources(chunk: Dictionary, detail: Node3D, center: Vector3, rng: R
 		var roll := rng.randf()
 		var turn := rng.randf_range(0.0, TAU)
 		var y: float = world.surface_height(x, z)
-		if _slope(x, z) < 0.7:
+		if _slope(x, z) < 0.7 or _in_site(x, z):
 			continue
 		var type := ""
 		if y > ROCK_HEIGHT:

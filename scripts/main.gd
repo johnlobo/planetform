@@ -63,6 +63,7 @@ var resource_defs := {}
 var placer: Node3D
 var modules: Array[Module] = []
 var _shelter_explained := false
+var _cave_dark := 0.0 # de 0 fuera a 1 dentro de una cueva
 
 var sky_colors := Gradient.new()
 var ground_colors := Gradient.new()
@@ -134,10 +135,14 @@ func _process(delta: float) -> void:
 	# De noche queda algo de luz azulada para que se vea el terreno.
 	environment.ambient_light_color = sky.lightened(0.3).lerp(Color(0.25, 0.3, 0.5), night * 0.8)
 	environment.ambient_light_energy = lerpf(0.6, 0.35, night)
+	# Dentro de una cueva apenas llega luz de fuera: hace falta la linterna.
+	Game.in_cave = land.cave_at(player.global_position)
+	_cave_dark = move_toward(_cave_dark, 1.0 if Game.in_cave else 0.0, delta * 2.0)
+	environment.ambient_light_energy *= lerpf(1.0, 0.06, _cave_dark)
 	land.material.set_shader_parameter("tint", ground_colors.sample(t))
-	sun.light_energy = lerpf(0.6, 1.2, t) * daylight * (1.0 - rain * 0.6)
+	sun.light_energy = lerpf(0.6, 1.2, t) * daylight * (1.0 - rain * 0.6) * lerpf(1.0, 0.15, _cave_dark)
 	sun.light_color = Color.WHITE.lerp(Color(1.0, 0.7, 0.45), _dusk())
-	moon.light_energy = 0.25 * night
+	moon.light_energy = 0.25 * night * (1.0 - _cave_dark)
 	# Las estrellas se apagan a medida que la atmósfera se espesa.
 	star_material.albedo_color.a = night * lerpf(1.0, 0.5, t)
 	stars.visible = night > 0.01
@@ -409,6 +414,19 @@ func _spawn_resources() -> void:
 		"hielo": _resource_def(_variants(_ice_slab), Color(0.85, 0.95, 1.0), _box_shape(Vector3(1.6, 0.4, 1.6)), Vector3(0, 0.2, 0)),
 		"cobre": _resource_def(_variants(_low_poly_rock), Color(0.3, 0.65, 0.5), _sphere_shape(0.8), Vector3(0, 0.4, 0)),
 	}
+	# Materiales avanzados: titanio plateado, cuarzo rosa que brilla e iridio
+	# de los meteoritos, oscuro con vetas violetas.
+	resource_defs["titanio"] = _resource_def(_variants(_low_poly_rock), Color(0.78, 0.8, 0.86), _sphere_shape(0.8), Vector3(0, 0.4, 0))
+	resource_defs["titanio"]["material"].metallic = 0.7
+	resource_defs["titanio"]["material"].roughness = 0.35
+	resource_defs["cuarzo"] = _resource_def(_variants(_crystal), Color(0.95, 0.6, 0.9), _box_shape(Vector3(0.9, 1.6, 0.9)), Vector3(0, 0.8, 0))
+	resource_defs["cuarzo"]["material"].emission_enabled = true
+	resource_defs["cuarzo"]["material"].emission = Color(0.6, 0.2, 0.55)
+	resource_defs["cuarzo"]["material"].roughness = 0.15
+	resource_defs["iridio"] = _resource_def(_variants(_low_poly_rock), Color(0.22, 0.18, 0.3), _sphere_shape(0.8), Vector3(0, 0.4, 0))
+	resource_defs["iridio"]["material"].metallic = 0.6
+	resource_defs["iridio"]["material"].emission_enabled = true
+	resource_defs["iridio"]["material"].emission = Color(0.35, 0.15, 0.6)
 	resource_defs["silicio"]["material"].emission_enabled = true
 	resource_defs["silicio"]["material"].emission = Color(0.1, 0.25, 0.3)
 	resource_defs["silicio"]["material"].roughness = 0.2

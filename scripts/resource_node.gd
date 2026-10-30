@@ -2,6 +2,7 @@ extends StaticBody3D
 ## Depósito de recurso que se agota al recogerlo y reaparece pasado un tiempo.
 
 const RESPAWN_TIME := 60.0
+const ADVANCED_RESPAWN_TIME := 300.0 # los materiales avanzados tardan más
 const MAX_AMOUNT := 3
 
 var resource_type := "hierro"
@@ -28,7 +29,15 @@ func setup(type: String, mesh: Mesh, material: Material, shape: Shape3D, shape_o
 
 
 func get_hint() -> String:
+	var need := required_drill()
+	if Game.drill_level < need:
+		return "%s · necesitas el %s" % [Game.RESOURCE_NAMES[resource_type], String(Game.DRILLS[need]["name"]).to_lower()]
 	return "%s (%d) · mantén clic para recoger" % [Game.RESOURCE_NAMES[resource_type], amount]
+
+
+## Nivel de taladro que hace falta para recogerlo (0 = cualquiera).
+func required_drill() -> int:
+	return int(Game.ADVANCED_DRILL.get(resource_type, 0))
 
 
 ## Vacía el depósito entero cuando se llena la barra de minar; el taladro
@@ -69,7 +78,8 @@ func _deplete() -> void:
 	visible = false
 	_shape.set_deferred("disabled", true)
 	# Con connect y no await: si el trozo del terreno se borra antes, no pasa nada.
-	get_tree().create_timer(RESPAWN_TIME).timeout.connect(_respawn)
+	var wait := ADVANCED_RESPAWN_TIME if Game.ADVANCED_DRILL.has(resource_type) else RESPAWN_TIME
+	get_tree().create_timer(wait).timeout.connect(_respawn)
 
 
 func _respawn() -> void:

@@ -14,6 +14,9 @@ signal tool_used(point: Vector3)
 signal build_menu_requested
 signal locker_requested(locker: Node3D)
 signal driving_changed(driving: bool)
+signal crate_opened(text: String)
+signal research_requested
+signal unlocks_changed
 
 const RESOURCE_NAMES := {
 	"hierro": "Hierro",
@@ -26,61 +29,96 @@ const RESOURCE_NAMES := {
 	"racion": "Ración de emergencia",
 	"verdura": "Verduras",
 	"guiso": "Guiso",
+	# Materiales avanzados: solo en cuevas y cráteres, lejos de la base.
+	"titanio": "Titanio",
+	"cuarzo": "Cuarzo",
+	"iridio": "Iridio",
+	"placa": "Placa de aleación",
+	"circuito": "Circuito",
+	"chip": "Chip de datos",
 }
 
+# Materiales avanzados y el nivel de taladro (índice en DRILLS) que piden.
+const ADVANCED_DRILL := {"titanio": 1, "cuarzo": 1, "iridio": 2}
+
 # "stage" es la etapa mínima de terraformación que desbloquea la receta.
+# "tab" es la pestaña del menú de lo que se coloca: "construccion",
+# "tecnologia" o "terraformacion"; lo que va al inventario sale en Fabricar.
+# "unlock" pide algo más para que aparezca en el menú:
+#   {"found": recurso}: haberlo recogido alguna vez.
+#   {"index": %}: llegar a ese índice de terraformación.
+#   {"chips": n}: investigarla en un terminal gastando n chips de datos.
+#   {"fragments": n}: reunir n fragmentos de su plano en cajas de suministros.
+# Lo que no está desbloqueado no se enseña.
 const RECIPES := {
 	# Taladros: cada uno sustituye al anterior y hace falta tener el anterior.
 	"taladro": {"name": "Taladro mejorado", "cost": {"hierro": 3, "silicio": 1}, "kind": "tool", "stage": 0},
 	"taladro_termico": {"name": "Taladro térmico", "cost": {"hierro": 4, "cobre": 3, "silicio": 2}, "kind": "tool", "stage": 2},
 	"taladro_plasma": {"name": "Taladro de plasma", "cost": {"hierro": 5, "cobre": 4, "silicio": 3, "agua": 2}, "kind": "tool", "stage": 3},
-	"panel": {"name": "Panel solar", "cost": {"hierro": 2, "silicio": 2}, "kind": "building", "stage": 0},
-	"generador": {"name": "Generador de oxígeno", "cost": {"hierro": 3, "hielo": 2}, "kind": "building", "stage": 0},
-	"calentador": {"name": "Calentador", "cost": {"hierro": 4, "silicio": 1}, "kind": "building", "stage": 1},
-	"perforadora": {"name": "Perforadora de gases", "cost": {"hierro": 3, "silicio": 1, "hielo": 1}, "kind": "building", "stage": 0},
+	"panel": {"name": "Panel solar", "cost": {"hierro": 2, "silicio": 2}, "kind": "building", "stage": 0, "tab": "tecnologia"},
+	"generador": {"name": "Generador de oxígeno", "cost": {"hierro": 3, "hielo": 2}, "kind": "building", "stage": 0, "tab": "terraformacion"},
+	"calentador": {"name": "Calentador", "cost": {"hierro": 4, "silicio": 1}, "kind": "building", "stage": 1, "tab": "terraformacion"},
+	"perforadora": {"name": "Perforadora de gases", "cost": {"hierro": 3, "silicio": 1, "hielo": 1}, "kind": "building", "stage": 0, "tab": "terraformacion"},
 	# Primera neblina: para salir a explorar lejos de la base.
 	"jetpack": {"name": "Propulsores", "cost": {"hierro": 4, "silicio": 2, "hielo": 2}, "kind": "tool", "stage": 1},
-	"rover": {"name": "Róver de exploración", "cost": {"hierro": 10, "silicio": 4}, "kind": "vehicle", "stage": 1},
-	"cargador": {"name": "Punto de recarga", "cost": {"hierro": 3, "silicio": 2}, "kind": "building", "stage": 1},
+	"rover": {"name": "Róver de exploración", "cost": {"hierro": 10, "silicio": 4}, "kind": "vehicle", "stage": 1, "tab": "tecnologia"},
+	"cargador": {"name": "Punto de recarga", "cost": {"hierro": 3, "silicio": 2}, "kind": "building", "stage": 1, "tab": "tecnologia"},
 	"botella": {"name": "Botella de oxígeno", "cost": {"hielo": 1}, "kind": "consumable", "stage": 0},
+	# Para ver dentro de las cuevas: se enciende y apaga con L.
+	"linterna": {"name": "Linterna", "cost": {"hierro": 2, "cobre": 1}, "kind": "tool", "stage": 0},
+	# Componentes de las tecnologías avanzadas.
+	"placa": {"name": "Placa de aleación", "cost": {"titanio": 2, "hierro": 1}, "kind": "consumable", "stage": 0, "unlock": {"found": "titanio"}},
+	"circuito": {"name": "Circuito", "cost": {"cuarzo": 1, "cobre": 1, "silicio": 1}, "kind": "consumable", "stage": 0, "unlock": {"found": "cuarzo"}},
 	# Deshielo
 	"tanque": {"name": "Tanque de oxígeno", "cost": {"hierro": 2, "cobre": 2}, "kind": "tool", "stage": 2},
-	"turbina": {"name": "Turbina eólica", "cost": {"hierro": 3, "cobre": 2}, "kind": "building", "stage": 2},
-	"generador_avanzado": {"name": "Generador avanzado", "cost": {"hierro": 4, "cobre": 3, "hielo": 3}, "kind": "building", "stage": 2},
-	"calentador_avanzado": {"name": "Calentador avanzado", "cost": {"hierro": 4, "cobre": 3, "silicio": 2}, "kind": "building", "stage": 2},
-	"compresor": {"name": "Compresor atmosférico", "cost": {"hierro": 4, "cobre": 3, "silicio": 2}, "kind": "building", "stage": 2},
+	"turbina": {"name": "Turbina eólica", "cost": {"hierro": 3, "cobre": 2}, "kind": "building", "stage": 2, "tab": "tecnologia"},
+	"generador_avanzado": {"name": "Generador avanzado", "cost": {"hierro": 4, "cobre": 3, "hielo": 3}, "kind": "building", "stage": 2, "tab": "terraformacion"},
+	"calentador_avanzado": {"name": "Calentador avanzado", "cost": {"hierro": 4, "cobre": 3, "silicio": 2}, "kind": "building", "stage": 2, "tab": "terraformacion"},
+	"compresor": {"name": "Compresor atmosférico", "cost": {"hierro": 4, "cobre": 3, "silicio": 2}, "kind": "building", "stage": 2, "tab": "terraformacion"},
 	"semillas": {"name": "Semillas de musgo", "cost": {"agua": 1, "silicio": 1}, "kind": "consumable", "stage": 2},
 	"guiso": {"name": "Guiso", "cost": {"verdura": 3, "agua": 1}, "kind": "consumable", "stage": 2},
-	"musgo": {"name": "Musgo", "cost": {"semillas": 1}, "kind": "building", "stage": 2},
-	"bomba": {"name": "Bomba de agua", "cost": {"hierro": 3, "cobre": 2}, "kind": "building", "stage": 2},
-	"cultivo": {"name": "Bancal de cultivo", "cost": {"hierro": 2, "agua": 3, "semillas": 2}, "kind": "building", "stage": 2},
-	"drones": {"name": "Estación de drones", "cost": {"hierro": 6, "cobre": 4, "silicio": 3}, "kind": "building", "stage": 2},
+	"musgo": {"name": "Musgo", "cost": {"semillas": 1}, "kind": "building", "stage": 2, "tab": "terraformacion"},
+	"bomba": {"name": "Bomba de agua", "cost": {"hierro": 3, "cobre": 2}, "kind": "building", "stage": 2, "tab": "tecnologia"},
+	"cultivo": {"name": "Bancal de cultivo", "cost": {"hierro": 2, "agua": 3, "semillas": 2}, "kind": "building", "stage": 2, "tab": "terraformacion"},
+	"drones": {"name": "Estación de drones", "cost": {"hierro": 6, "cobre": 4, "silicio": 3}, "kind": "building", "stage": 2, "tab": "tecnologia"},
 	# Lluvias
-	"colector": {"name": "Colector de lluvia", "cost": {"hierro": 2, "silicio": 2}, "kind": "building", "stage": 3},
-	"arbol": {"name": "Plantón de árbol", "cost": {"semillas": 2, "agua": 2}, "kind": "building", "stage": 3},
-	"insectos": {"name": "Criadero de insectos", "cost": {"hierro": 3, "cobre": 2, "verdura": 2}, "kind": "building", "stage": 3},
+	"colector": {"name": "Colector de lluvia", "cost": {"hierro": 2, "silicio": 2}, "kind": "building", "stage": 3, "tab": "tecnologia"},
+	"arbol": {"name": "Plantón de árbol", "cost": {"semillas": 2, "agua": 2}, "kind": "building", "stage": 3, "tab": "terraformacion"},
+	"insectos": {"name": "Criadero de insectos", "cost": {"hierro": 3, "cobre": 2, "verdura": 2}, "kind": "building", "stage": 3, "tab": "terraformacion"},
 	# Base: módulos que encajan entre sí y piezas para sus paredes.
-	"modulo": {"name": "Módulo de hábitat", "cost": {"hierro": 6, "silicio": 2}, "kind": "module", "stage": 0},
-	"pasillo": {"name": "Pasillo recto", "cost": {"hierro": 3, "silicio": 1}, "kind": "module", "stage": 0},
-	"pasillo_l": {"name": "Pasillo en L", "cost": {"hierro": 4, "silicio": 1}, "kind": "module", "stage": 0},
-	"pasillo_t": {"name": "Pasillo en T", "cost": {"hierro": 4, "silicio": 1}, "kind": "module", "stage": 0},
-	"puerta": {"name": "Puerta", "cost": {"hierro": 2}, "kind": "fitting", "stage": 0},
-	"ventana": {"name": "Ventana", "cost": {"hierro": 1, "silicio": 2}, "kind": "fitting", "stage": 0},
+	"modulo": {"name": "Módulo de hábitat", "cost": {"hierro": 6, "silicio": 2}, "kind": "module", "stage": 0, "tab": "construccion"},
+	"pasillo": {"name": "Pasillo recto", "cost": {"hierro": 3, "silicio": 1}, "kind": "module", "stage": 0, "tab": "construccion"},
+	"pasillo_l": {"name": "Pasillo en L", "cost": {"hierro": 4, "silicio": 1}, "kind": "module", "stage": 0, "tab": "construccion"},
+	"pasillo_t": {"name": "Pasillo en T", "cost": {"hierro": 4, "silicio": 1}, "kind": "module", "stage": 0, "tab": "construccion"},
+	"puerta": {"name": "Puerta", "cost": {"hierro": 2}, "kind": "fitting", "stage": 0, "tab": "construccion"},
+	"ventana": {"name": "Ventana", "cost": {"hierro": 1, "silicio": 2}, "kind": "fitting", "stage": 0, "tab": "construccion"},
 	# Va en una esquina del módulo y abre una trampilla al techo o a la planta de arriba.
-	"escalera": {"name": "Escalera", "cost": {"hierro": 2}, "kind": "fitting", "stage": 0},
-	"taquilla": {"name": "Taquilla", "cost": {"hierro": 3}, "kind": "building", "stage": 0},
-	"cama": {"name": "Cama", "cost": {"hierro": 3}, "kind": "building", "stage": 0},
-	"farola": {"name": "Farola", "cost": {"hierro": 1, "silicio": 1}, "kind": "building", "stage": 0},
+	"escalera": {"name": "Escalera", "cost": {"hierro": 2}, "kind": "fitting", "stage": 0, "tab": "construccion"},
+	"taquilla": {"name": "Taquilla", "cost": {"hierro": 3}, "kind": "building", "stage": 0, "tab": "construccion"},
+	"cama": {"name": "Cama", "cost": {"hierro": 3}, "kind": "building", "stage": 0, "tab": "construccion"},
+	"farola": {"name": "Farola", "cost": {"hierro": 1, "silicio": 1}, "kind": "building", "stage": 0, "tab": "construccion"},
 	# Primera neblina: automatización y energía para la noche.
-	"extractor": {"name": "Extractor automático", "cost": {"hierro": 5, "silicio": 2}, "kind": "building", "stage": 1},
-	"bateria": {"name": "Batería", "cost": {"hierro": 3, "cobre": 3, "silicio": 1}, "kind": "building", "stage": 1},
+	"extractor": {"name": "Extractor automático", "cost": {"hierro": 5, "silicio": 2}, "kind": "building", "stage": 1, "tab": "tecnologia"},
+	"bateria": {"name": "Batería", "cost": {"hierro": 3, "cobre": 3, "silicio": 1}, "kind": "building", "stage": 1, "tab": "tecnologia"},
 	# Pantallas que muestran cómo va el planeta.
-	"pantalla": {"name": "Pantalla de terraformación", "cost": {"hierro": 2, "silicio": 2}, "kind": "building", "stage": 0},
-	"monitor_oxigeno": {"name": "Monitor de oxígeno", "cost": {"hierro": 1, "silicio": 1}, "kind": "building", "stage": 0},
-	"monitor_calor": {"name": "Monitor de calor", "cost": {"hierro": 1, "silicio": 1}, "kind": "building", "stage": 0},
-	"monitor_presion": {"name": "Monitor de presión", "cost": {"hierro": 1, "silicio": 1}, "kind": "building", "stage": 0},
-	"monitor_biomasa": {"name": "Monitor de biomasa", "cost": {"hierro": 1, "silicio": 1}, "kind": "building", "stage": 0},
+	"pantalla": {"name": "Pantalla de terraformación", "cost": {"hierro": 2, "silicio": 2}, "kind": "building", "stage": 0, "tab": "construccion"},
+	"monitor_oxigeno": {"name": "Monitor de oxígeno", "cost": {"hierro": 1, "silicio": 1}, "kind": "building", "stage": 0, "tab": "construccion"},
+	"monitor_calor": {"name": "Monitor de calor", "cost": {"hierro": 1, "silicio": 1}, "kind": "building", "stage": 0, "tab": "construccion"},
+	"monitor_presion": {"name": "Monitor de presión", "cost": {"hierro": 1, "silicio": 1}, "kind": "building", "stage": 0, "tab": "construccion"},
+	"monitor_biomasa": {"name": "Monitor de biomasa", "cost": {"hierro": 1, "silicio": 1}, "kind": "building", "stage": 0, "tab": "construccion"},
+	# Donde se gastan los chips de datos para investigar tecnologías.
+	"terminal": {"name": "Terminal de investigación", "cost": {"hierro": 3, "silicio": 2, "cobre": 1}, "kind": "building", "stage": 0, "tab": "construccion"},
+	# Tecnologías avanzadas: piden materiales de las cuevas y los cráteres.
+	"geotermico": {"name": "Generador geotérmico", "cost": {"hierro": 4, "placa": 2, "circuito": 2}, "kind": "building", "stage": 0, "tab": "tecnologia", "unlock": {"chips": 2}},
+	"telepuerto": {"name": "Telepuerto", "cost": {"placa": 3, "circuito": 3, "iridio": 2}, "kind": "building", "stage": 0, "tab": "tecnologia", "unlock": {"fragments": 3}},
+	"extractor_titanio": {"name": "Extractor de titanio", "cost": {"placa": 3, "circuito": 2}, "kind": "building", "stage": 0, "tab": "tecnologia", "unlock": {"chips": 4}},
+	"liberador": {"name": "Liberador de gases de efecto invernadero", "cost": {"placa": 3, "circuito": 2}, "kind": "building", "stage": 0, "tab": "terraformacion", "unlock": {"index": 35.0}},
+	"torre": {"name": "Torre atmosférica", "cost": {"placa": 4, "circuito": 2, "iridio": 1}, "kind": "building", "stage": 0, "tab": "terraformacion", "unlock": {"fragments": 3}},
+	"arbol_modificado": {"name": "Árbol modificado", "cost": {"semillas": 2, "agua": 2, "circuito": 1}, "kind": "building", "stage": 3, "tab": "terraformacion", "unlock": {"chips": 3}},
 }
+
+# Pestañas del menú de construir, en orden.
+const BUILD_TABS := ["construccion", "tecnologia", "terraformacion"]
 
 # Recetas que se colocan en el mundo en vez de ir al inventario.
 const PLACEABLE_KINDS := ["building", "module", "fitting", "vehicle"]
@@ -112,7 +150,8 @@ const MACHINES := {
 	# El bancal, además de subir la biomasa, da verduras para comer.
 	"cultivo": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 3, "storage": 12, "produces": "verdura", "produce_time": 20.0},
 	# Se pone sobre un depósito y saca su recurso ("deposit") sin agotarlo.
-	"extractor": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 0, "storage": 15, "produces": "deposit", "produce_time": 15.0},
+	# "deposits": de qué depósitos puede sacar.
+	"extractor": {"deposits": ["hierro", "silicio", "hielo", "cobre"], "energy": -1, "oxygen": 0, "temperature": 0, "biomass": 0, "storage": 15, "produces": "deposit", "produce_time": 15.0},
 	# Guarda la energía que sobra y la da cuando falta (de noche).
 	"bateria": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "battery": true},
 	# "inside" = solo se coloca en el suelo de la base. Con E se duerme hasta
@@ -136,6 +175,15 @@ const MACHINES := {
 	"arbol": {"energy": 0, "oxygen": 1, "temperature": 0, "biomass": 2, "plant": true, "outside": true, "grow_time": 90.0},
 	# Sus insectos polinizan los bancales a menos de POLLEN_RANGE metros.
 	"insectos": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 2, "pollinates": true},
+	# Tecnologías avanzadas. El terminal se usa con E para investigar y el
+	# telepuerto, para ir al siguiente telepuerto ("teleport").
+	"terminal": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "research": true},
+	"geotermico": {"energy": 6, "oxygen": 0, "temperature": 0, "biomass": 0},
+	"telepuerto": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 0, "teleport": true},
+	"extractor_titanio": {"deposits": ["titanio"], "energy": -2, "oxygen": 0, "temperature": 0, "biomass": 0, "storage": 15, "produces": "deposit", "produce_time": 20.0},
+	"liberador": {"energy": -3, "oxygen": 0, "temperature": 6, "biomass": 0},
+	"torre": {"energy": -3, "oxygen": 0, "temperature": 0, "biomass": 0, "pressure": 6},
+	"arbol_modificado": {"energy": 0, "oxygen": 2, "temperature": 0, "biomass": 5, "plant": true, "outside": true, "grow_time": 90.0},
 }
 
 # Métricas del planeta, en el orden en que salen en la interfaz.
@@ -212,16 +260,32 @@ const BATTERY_CAPACITY := 120.0
 const BATTERY_POWER := 2
 # Al dormir se pasa el hambre de este tanto del tiempo que se salta.
 const SLEEP_HUNGER_FACTOR := 0.5
+# Cajas de suministros: probabilidad de que den un fragmento de plano (si
+# queda alguno por reunir) en vez de un chip de datos.
+const FRAGMENT_CHANCE := 0.45
 # Versión del guardado. La 2 añadió las Lluvias entre el Deshielo y Habitable.
 const SAVE_VERSION := 2
 const SAVE_PATH := "user://partida.json"
 const AUTOSAVE_TIME := 15.0
 
 var inventory := {"hierro": 0, "silicio": 0, "hielo": 0, "cobre": 0, "agua": 0, "semillas": 0, "botella": 0,
-		"racion": START_RATIONS, "verdura": 0, "guiso": 0}
+		"racion": START_RATIONS, "verdura": 0, "guiso": 0,
+		"titanio": 0, "cuarzo": 0, "iridio": 0, "placa": 0, "circuito": 0, "chip": 0}
 var drill_level := 0 # índice en DRILLS
 var has_tank := false
 var has_jetpack := false
+var has_flashlight := false
+var flashlight_on := false
+# Recetas con "unlock" ya desbloqueadas (sin las de "found", que van por found).
+var unlocked: Array = []
+# Materiales avanzados recogidos alguna vez.
+var found: Array = []
+# Fragmentos de plano reunidos: {receta: cantidad}.
+var fragments := {}
+# Cajas de suministros ya abiertas, por su id.
+var opened_crates: Array = []
+# true con el jugador dentro de una cueva: se ve todo más oscuro.
+var in_cave := false
 # Combustible de los propulsores, de 0 a JETPACK_FUEL_MAX.
 var jetpack_fuel := 100.0
 # Número de construcciones colocadas de cada tipo.
@@ -304,6 +368,7 @@ func _process(delta: float) -> void:
 			set(metric, minf(100.0, float(get(metric)) + metric_rate(metric) * delta))
 		planet_changed.emit()
 		_update_stage()
+		_check_index_unlocks()
 
 	_update_day_and_cold(delta)
 	_update_rain()
@@ -606,11 +671,118 @@ func metric_rate(metric: String) -> float:
 
 func add_item(id: String, amount: int) -> void:
 	inventory[id] = int(inventory.get(id, 0)) + amount
+	if ADVANCED_DRILL.has(id) and not id in found:
+		found.append(id)
+		for recipe_id in RECIPES:
+			if RECIPES[recipe_id].get("unlock", {}).get("found", "") == id:
+				_announce(recipe_id)
 	inventory_changed.emit()
 
 
+## true si la receta sale en el menú: su etapa y lo que pida "unlock".
 func is_unlocked(id: String) -> bool:
-	return stage >= int(RECIPES[id]["stage"])
+	var recipe: Dictionary = RECIPES[id]
+	if stage < int(recipe["stage"]):
+		return false
+	var unlock: Dictionary = recipe.get("unlock", {})
+	if unlock.is_empty():
+		return true
+	if unlock.has("found"):
+		return String(unlock["found"]) in found
+	return id in unlocked
+
+
+## Lo que se puede investigar ahora en el terminal: lo que pide chips y aún
+## no está desbloqueado, si ya se ha llegado a su etapa.
+func researchable() -> Array:
+	var list := []
+	for id in RECIPES:
+		if RECIPES[id].get("unlock", {}).has("chips") and not id in unlocked \
+				and stage >= int(RECIPES[id]["stage"]):
+			list.append(id)
+	return list
+
+
+## Gasta los chips de datos que pide la receta y la desbloquea.
+func research(id: String) -> bool:
+	var chips := int(RECIPES[id]["unlock"]["chips"])
+	if id in unlocked or not id in researchable() or int(inventory.get("chip", 0)) < chips:
+		return false
+	inventory["chip"] = int(inventory["chip"]) - chips
+	unlocked.append(id)
+	Sfx.play("etapa")
+	_announce(id)
+	inventory_changed.emit()
+	return true
+
+
+## Recetas cuyo plano aún no está completo.
+func missing_blueprints() -> Array:
+	var list := []
+	for id in RECIPES:
+		var unlock: Dictionary = RECIPES[id].get("unlock", {})
+		if unlock.has("fragments") and int(fragments.get(id, 0)) < int(unlock["fragments"]):
+			list.append(id)
+	return list
+
+
+## Abre una caja de suministros: da un fragmento de un plano incompleto o un
+## chip de datos. Cada caja se abre una sola vez.
+func open_crate(id: String) -> void:
+	if id in opened_crates:
+		return
+	opened_crates.append(id)
+	Sfx.play("craftear")
+	var missing := missing_blueprints()
+	if not missing.is_empty() and randf() < FRAGMENT_CHANCE:
+		var blueprint: String = missing[randi() % missing.size()]
+		fragments[blueprint] = int(fragments.get(blueprint, 0)) + 1
+		var need := int(RECIPES[blueprint]["unlock"]["fragments"])
+		var text := "Fragmento de plano: %s (%d / %d)" % [RECIPES[blueprint]["name"], fragments[blueprint], need]
+		crate_opened.emit(text)
+		message.emit(text)
+		if int(fragments[blueprint]) >= need:
+			unlocked.append(blueprint)
+			Sfx.play("etapa")
+			_announce(blueprint)
+	else:
+		inventory["chip"] = int(inventory.get("chip", 0)) + 1
+		crate_opened.emit("+1 chip de datos")
+		message.emit("+1 chip de datos: gástalos en un terminal de investigación.")
+	inventory_changed.emit()
+	unlocks_changed.emit()
+
+
+## Desbloquea lo que pide un índice de terraformación ya alcanzado.
+func _check_index_unlocks() -> void:
+	var index := terraform_index()
+	for id in RECIPES:
+		var unlock: Dictionary = RECIPES[id].get("unlock", {})
+		if unlock.has("index") and not id in unlocked and index >= float(unlock["index"]):
+			unlocked.append(id)
+			_announce(id)
+			inventory_changed.emit()
+
+
+## Avisa de una receta nueva y dice en qué pestaña está.
+func _announce(id: String) -> void:
+	var recipe: Dictionary = RECIPES[id]
+	var tab := "Fabricar"
+	match String(recipe.get("tab", "")):
+		"construccion": tab = "Construcción"
+		"tecnologia": tab = "Tecnología"
+		"terraformacion": tab = "Terraformación"
+	message.emit("Desbloqueado: %s (pestaña %s)" % [recipe["name"], tab])
+	unlocks_changed.emit()
+
+
+## Enciende o apaga la linterna, si se tiene.
+func toggle_flashlight() -> void:
+	if not has_flashlight:
+		message.emit("No tienes linterna: fabrícala (Tab).")
+		return
+	flashlight_on = not flashlight_on
+	Sfx.play("clic")
 
 
 func can_craft(id: String) -> bool:
@@ -619,7 +791,7 @@ func can_craft(id: String) -> bool:
 	var drill := drill_index(id)
 	if drill > 0 and drill_level != drill - 1:
 		return false # ya lo tiene, o le falta el taladro anterior
-	if (id == "tanque" and has_tank) or (id == "jetpack" and has_jetpack):
+	if (id == "tanque" and has_tank) or (id == "jetpack" and has_jetpack) or (id == "linterna" and has_flashlight):
 		return false
 	var cost: Dictionary = RECIPES[id]["cost"]
 	for res in cost:
@@ -649,6 +821,10 @@ func craft(id: String) -> bool:
 				has_jetpack = true
 				jetpack_fuel = JETPACK_FUEL_MAX
 				message.emit("Propulsores: mantén Espacio en el aire para volar un poco.")
+			elif id == "linterna":
+				has_flashlight = true
+				flashlight_on = true
+				message.emit("Linterna: L para encenderla o apagarla.")
 			elif drill_index(id) > 0:
 				drill_level = drill_index(id)
 				var drill: Dictionary = DRILLS[drill_level]
@@ -789,6 +965,12 @@ func save_game() -> void:
 		"drill_level": drill_level,
 		"has_tank": has_tank,
 		"has_jetpack": has_jetpack,
+		"has_flashlight": has_flashlight,
+		"flashlight_on": flashlight_on,
+		"unlocked": unlocked,
+		"found": found,
+		"fragments": fragments,
+		"opened_crates": opened_crates,
 		"oxygen": oxygen,
 		"temperature": temperature,
 		"biomass": biomass,
@@ -848,6 +1030,22 @@ func load_game() -> bool:
 	drill_level = clampi(int(data.get("drill_level", 1 if data.get("has_drill", false) else 0)), 0, DRILLS.size() - 1)
 	has_tank = bool(data.get("has_tank", false))
 	has_jetpack = bool(data.get("has_jetpack", false))
+	has_flashlight = bool(data.get("has_flashlight", false))
+	flashlight_on = has_flashlight and bool(data.get("flashlight_on", false))
+	# Lo de las partidas de antes de los desbloqueos empieza a cero.
+	for id in data.get("unlocked", []):
+		if RECIPES.has(String(id)) and not String(id) in unlocked:
+			unlocked.append(String(id))
+	for id in data.get("found", []):
+		if ADVANCED_DRILL.has(String(id)) and not String(id) in found:
+			found.append(String(id))
+	var saved_fragments = data.get("fragments", {})
+	if typeof(saved_fragments) == TYPE_DICTIONARY:
+		for id in saved_fragments:
+			if RECIPES.has(String(id)):
+				fragments[String(id)] = int(saved_fragments[id])
+	for id in data.get("opened_crates", []):
+		opened_crates.append(String(id))
 	oxygen = float(data.get("oxygen", 0.0))
 	temperature = float(data.get("temperature", 0.0))
 	biomass = float(data.get("biomass", 0.0))
@@ -910,6 +1108,13 @@ func _reset_state() -> void:
 	drill_level = 0
 	has_tank = false
 	has_jetpack = false
+	has_flashlight = false
+	flashlight_on = false
+	unlocked = []
+	found = []
+	fragments = {}
+	opened_crates = []
+	in_cave = false
 	jetpack_fuel = JETPACK_FUEL_MAX
 	machine_counts = {}
 	oxygen = 0.0
@@ -959,6 +1164,7 @@ func _setup_input() -> void:
 	_add_key("pause", [KEY_ESCAPE])
 	_add_key("rotate_building", [KEY_R])
 	_add_key("interact", [KEY_E])
+	_add_key("flashlight", [KEY_L])
 	_add_key("tool_recoger", [KEY_1])
 	_add_key("tool_construir", [KEY_2])
 	_add_key("tool_desmontar", [KEY_3])

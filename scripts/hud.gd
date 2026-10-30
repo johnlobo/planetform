@@ -10,7 +10,9 @@ const ICON_SIZE := 72
 # Casilla del menú: con 9 columnas caben las 26 construcciones en 3 filas.
 const CELL_SIZE := Vector2(ICON_SIZE + 46, ICON_SIZE + 78)
 const MENU_COLUMNS := 9
-const TAB_NAMES := {"fabricar": "Fabricar", "construir": "Construir"}
+const TAB_NAMES := {"fabricar": "Fabricar", "construccion": "Construcción", "tecnologia": "Tecnología", "terraformacion": "Terraformación"}
+# Lo que no sale en el inventario mientras no se tenga.
+const HIDDEN_WHEN_EMPTY := ["titanio", "cuarzo", "iridio", "placa", "circuito", "chip"]
 const MODE_COLORS := {
 	"recoger": Color(1.0, 0.85, 0.55),
 	"construir": Color(0.55, 0.88, 1.0),
@@ -35,14 +37,18 @@ var locker_panel: PanelContainer
 var locker_title: Label
 var locker_inventory: VBoxContainer
 var locker_contents: VBoxContainer
+var research_panel: PanelContainer
+var research_list: VBoxContainer
 var crosshair: Label
 var mine_bar: ProgressBar
 var mode_labels := {}
 var icons: Icons
 # Panel abierto ahora (el menú o la taquilla), o null.
 var _open_panel: Control
-# Pestaña del menú: "fabricar" o "construir". Tab vuelve a la última usada.
+# Pestaña del menú. Tab vuelve a la última usada; construir, a la última
+# pestaña de construir (_build_tab).
 var _tab := "fabricar"
+var _build_tab := "construccion"
 var _driving := false
 # La taquilla, máquina o maletero abierto: una Machine o un róver.
 var _locker: Node3D
@@ -97,7 +103,7 @@ func _ready() -> void:
 	help.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	help.offset_left = 16
 	help.offset_bottom = -16
-	help.text = "WASD mover · Espacio saltar · Clic usar herramienta (mantén para minar) · 1 2 3 o rueda cambiar modo\nTab fabricar y construir · E abrir taquilla o subir al róver · Q usar botella · F comer · R girar · Esc cerrar o pausa"
+	help.text = "WASD mover · Espacio saltar · Clic usar herramienta (mantén para minar) · 1 2 3 o rueda cambiar modo\nTab fabricar y construir · E usar, abrir o subir al róver · Q usar botella · F comer · L linterna · R girar · Esc cerrar o pausa"
 
 	_build_mode_bar()
 
@@ -145,6 +151,7 @@ func _ready() -> void:
 
 	_build_menu_panel()
 	_build_locker_panel()
+	_build_research_panel()
 	_build_death_screen()
 	icons = Icons.new()
 	add_child(icons)
@@ -158,6 +165,7 @@ func _ready() -> void:
 	Game.build_menu_requested.connect(_on_build_menu_requested)
 	Game.driving_changed.connect(func(driving: bool) -> void: _driving = driving)
 	Game.locker_requested.connect(_on_locker_requested)
+	Game.research_requested.connect(_on_research_requested)
 	_on_tool_changed(Game.tool_mode)
 	_refresh_inventory()
 
@@ -173,7 +181,7 @@ func _input(event: InputEvent) -> void:
 	elif _open_panel:
 		var right_click: bool = event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT
 		if event.is_action_pressed("craft") or event.is_action_pressed("pause") \
-				or (event.is_action_pressed("interact") and _open_panel == locker_panel) or right_click:
+				or (event.is_action_pressed("interact") and _open_panel in [locker_panel, research_panel]) or right_click:
 			_close_panel()
 			get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("craft") and not get_tree().paused:
@@ -212,6 +220,10 @@ func _process(delta: float) -> void:
 		Game.terraform_index(), Game.energy_supply(), Game.energy_demand()]
 	if Game.battery_capacity() > 0.0:
 		planet_label.text += "\nBaterías: %d %%" % roundi(Game.battery_percent())
+	# Planos a medias: solo los que ya tienen algún fragmento.
+	for id in Game.fragments:
+		if not id in Game.unlocked:
+			planet_label.text += "\nPlano de %s: %d / %d" % [String(Game.RECIPES[id]["name"]).to_lower(), Game.fragments[id], Game.RECIPES[id]["unlock"]["fragments"]]
 	if message_timer > 0.0:
 		message_timer -= delta
 		if message_timer <= 0.0 and not Game.finished:
@@ -413,18 +425,23 @@ func _refresh_panel() -> void:
 		_refresh_menu_grid()
 	elif _open_panel == locker_panel:
 		_refresh_locker()
+	elif _open_panel == research_panel:
+		_refresh_research()
 
 
 func _refresh_inventory() -> void:
 	var lines := PackedStringArray()
 	for id in Game.inventory:
-		lines.append("%s: %d" % [Game.RESOURCE_NAMES[id], Game.inventory[id]])
+		if int(Game.inventory[id]) > 0 or not id in HIDDEN_WHEN_EMPTY:
+			lines.append("%s: %d" % [Game.RESOURCE_NAMES[id], Game.inventory[id]])
 	if Game.drill_level > 0:
 		lines.append(Game.drill()["name"])
 	if Game.has_tank:
 		lines.append("Tanque de oxígeno")
 	if Game.has_jetpack:
 		lines.append("Propulsores")
+	if Game.has_flashlight:
+		lines.append("Linterna (L)")
 	inventory_label.text = "\n".join(lines)
 	if _open_panel:
 		_refresh_panel()
@@ -433,7 +450,10 @@ func _refresh_inventory() -> void:
 func _show_menu(tab: String) -> void:
 	_tab = tab
 	tab_buttons[tab].button_pressed = true
-	var rows := ceili(maxf(_tab_kinds("fabricar").size(), _tab_kinds("construir").size()) / float(MENU_COLUMNS))
+	var most := 1
+	for name in TAB_NAMES:
+		most = maxi(most, _tab_kinds(name).size())
+	var rows := ceili(most / float(MENU_COLUMNS))
 	var width := MENU_COLUMNS * (CELL_SIZE.x + 8)
 	var height := minf(rows * (CELL_SIZE.y + 8), get_viewport().get_visible_rect().size.y - 140)
 	menu_scroll.custom_minimum_size = Vector2(width, height)
@@ -444,23 +464,30 @@ func _select_tab(tab: String) -> void:
 	if tab != _tab:
 		Sfx.play("clic")
 	_tab = tab
+	if tab != "fabricar":
+		_build_tab = tab
 	tab_buttons[tab].button_pressed = true
 	menu_scroll.scroll_vertical = 0
 	_refresh_menu_grid()
 
 
-## Lo que sale en una pestaña, en el orden de las recetas.
+## Lo que sale en una pestaña, en el orden de las recetas: solo lo
+## desbloqueado.
 func _tab_kinds(tab: String) -> Array:
 	var kinds := []
 	for id in Game.RECIPES:
-		if Game.is_placeable(id) == (tab == "construir"):
+		if not Game.is_unlocked(id):
+			continue
+		if tab == "fabricar" and not Game.is_placeable(id):
+			kinds.append(id)
+		elif tab != "fabricar" and String(Game.RECIPES[id].get("tab", "")) == tab:
 			kinds.append(id)
 	return kinds
 
 
 func _on_build_menu_requested() -> void:
 	if not get_tree().paused and not Game.dead:
-		_show_menu("construir")
+		_show_menu(_build_tab)
 
 
 func _on_icons_finished() -> void:
@@ -468,19 +495,24 @@ func _on_icons_finished() -> void:
 		_refresh_menu_grid()
 
 
-## Una casilla por receta de la pestaña: icono, nombre y coste. Las que faltan
-## por desbloquear o no se pueden pagar salen apagadas.
+## Una casilla por receta desbloqueada de la pestaña: icono, nombre y
+## coste. Las que no se pueden pagar salen apagadas.
 func _refresh_menu_grid() -> void:
 	for child in menu_grid.get_children():
 		child.queue_free()
-	for id in _tab_kinds(_tab):
+	var kinds := _tab_kinds(_tab)
+	if kinds.is_empty():
+		var empty := Label.new()
+		empty.text = "Aún no hay nada desbloqueado aquí."
+		empty.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
+		menu_grid.add_child(empty)
+	for id in kinds:
 		var recipe: Dictionary = Game.RECIPES[id]
-		var unlocked := Game.is_unlocked(id)
 		var owned := _owned(id)
 		var button := Button.new()
 		button.custom_minimum_size = CELL_SIZE
 		button.focus_mode = Control.FOCUS_NONE
-		button.disabled = not Game.can_craft(id) or (_driving and _tab == "construir")
+		button.disabled = not Game.can_craft(id) or (_driving and _tab != "fabricar")
 		button.pressed.connect(_on_item_pressed.bind(id))
 		button.tooltip_text = _tooltip(id)
 		var box := VBoxContainer.new()
@@ -496,19 +528,14 @@ func _refresh_menu_grid() -> void:
 		icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		icon.texture = icons.textures.get(id)
 		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		if not unlocked:
-			icon.modulate = Color(0.2, 0.2, 0.2)
-		elif button.disabled and not owned:
+		if button.disabled and not owned:
 			icon.modulate = Color(1, 1, 1, 0.45)
 		box.add_child(icon)
 		var name_label := _small_label(recipe["name"], 13)
 		box.add_child(name_label)
 		var cost_text: String = Game.cost_text(recipe["cost"])
 		var cost_color := Color(0.75, 0.75, 0.75)
-		if not unlocked:
-			cost_text = Game.STAGES[int(recipe["stage"])]["name"]
-			cost_color = Color(0.9, 0.6, 0.3)
-		elif owned:
+		if owned:
 			cost_text = "Ya lo tienes"
 			cost_color = Color(0.55, 0.9, 0.55)
 		var cost_label := _small_label(cost_text, 11)
@@ -538,6 +565,8 @@ func _owned(id: String) -> bool:
 			return Game.has_tank
 		"jetpack":
 			return Game.has_jetpack
+		"linterna":
+			return Game.has_flashlight
 	return false
 
 
@@ -561,6 +590,10 @@ func _tooltip(id: String) -> String:
 			tip += "\nSirven para plantar musgo, bancales y árboles"
 		"guiso":
 			tip += "\nF para comer: llena la barra entera"
+		"linterna":
+			tip += "\nL para encenderla o apagarla; dentro de las cuevas no se ve nada sin ella"
+		"placa", "circuito":
+			tip += "\nComponente de las tecnologías avanzadas"
 	if _driving and Game.is_placeable(id):
 		tip += "\nBájate del róver para construir"
 	if recipe["kind"] == "vehicle":
@@ -571,6 +604,15 @@ func _tooltip(id: String) -> String:
 		tip += "\nRecoge agua cuando llueve, sin energía"
 	if Game.MACHINES.get(id, {}).get("pollinates", false):
 		tip += "\nLos bancales cercanos dan verduras más rápido"
+	if Game.MACHINES.get(id, {}).get("research", false):
+		tip += "\nE para gastar chips de datos en tecnologías nuevas"
+	if Game.MACHINES.get(id, {}).get("teleport", false):
+		tip += "\nE para viajar al siguiente telepuerto (hacen falta dos)"
+	if Game.MACHINES.get(id, {}).has("deposits"):
+		var names := PackedStringArray()
+		for res in Game.MACHINES[id]["deposits"]:
+			names.append(String(Game.RESOURCE_NAMES[res]).to_lower())
+		tip += "\nSe pone sobre un depósito de %s" % ", ".join(names)
 	if Game.MACHINES.get(id, {}).get("plant", false):
 		tip += "\nCon lluvia crece el doble de rápido"
 	if recipe["kind"] == "building":
@@ -606,6 +648,62 @@ func _on_item_pressed(id: String) -> void:
 		# Colocar solo funciona en modo construir (al cambiar de modo se cancela).
 		Game.set_tool_mode("construir")
 	Game.craft(id)
+
+
+## Panel del terminal: lo que se puede investigar con chips de datos.
+func _build_research_panel() -> void:
+	var parts := _panel("Terminal de investigación (E, Tab o Esc para cerrar)")
+	research_panel = parts[0]
+	research_list = VBoxContainer.new()
+	research_list.custom_minimum_size.x = 520
+	research_list.add_theme_constant_override("separation", 8)
+	parts[1].add_child(research_list)
+
+
+func _on_research_requested() -> void:
+	if not get_tree().paused and not Game.dead:
+		_show_panel(research_panel)
+
+
+func _refresh_research() -> void:
+	for child in research_list.get_children():
+		child.queue_free()
+	var chips := int(Game.inventory.get("chip", 0))
+	research_list.add_child(_small_heading("Chips de datos: %d" % chips))
+	var list := Game.researchable()
+	if list.is_empty():
+		var note := Label.new()
+		note.text = "No hay nada que investigar por ahora."
+		note.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
+		research_list.add_child(note)
+	for id in list:
+		var recipe: Dictionary = Game.RECIPES[id]
+		var need := int(recipe["unlock"]["chips"])
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 12)
+		var icon := TextureRect.new()
+		icon.custom_minimum_size = Vector2(48, 48)
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.texture = icons.textures.get(id)
+		row.add_child(icon)
+		var label := Label.new()
+		label.text = "%s\n%s" % [recipe["name"], Game.cost_text(recipe["cost"])]
+		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(label)
+		var button := Button.new()
+		button.text = "Investigar (%d chips)" % need
+		button.disabled = chips < need
+		button.focus_mode = Control.FOCUS_NONE
+		button.pressed.connect(func() -> void: Game.research(id))
+		row.add_child(button)
+		research_list.add_child(row)
+	var hint := Label.new()
+	hint.text = "Los chips y los fragmentos de plano están en las cajas de los restos de naves y de las cuevas."
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.custom_minimum_size.x = 520
+	hint.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
+	research_list.add_child(hint)
 
 
 func _on_locker_requested(locker: Node3D) -> void:
