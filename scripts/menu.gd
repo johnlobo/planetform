@@ -1,5 +1,5 @@
 extends CanvasLayer
-## Menú principal al arrancar y menú de pausa (H) durante la partida.
+## Menú principal al arrancar y menú de pausa (Esc) durante la partida.
 
 signal opened
 signal closed
@@ -62,6 +62,10 @@ func _ready() -> void:
 func _input(event: InputEvent) -> void:
 	if not event.is_action_pressed("pause") or Game.dead or _is_title:
 		return
+	# Con un panel abierto o colocando algo, Esc solo cierra eso: lo hacen
+	# el HUD y el colocador, que reciben el evento después.
+	if not visible and (Game.ui_open or Game.placing):
+		return
 	if visible:
 		_close()
 	else:
@@ -84,7 +88,7 @@ func open_pause() -> void:
 	_is_title = false
 	_has_save = true
 	_title.text = "Pausa"
-	_subtitle.text = "H para volver a la partida"
+	_subtitle.text = "Esc para volver a la partida"
 	_continue_button.text = "Continuar"
 	_new_button.visible = true
 	_open()

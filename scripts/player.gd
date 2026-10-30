@@ -89,15 +89,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		camera.rotate_x(-event.relative.y * MOUSE_SENSITIVITY)
 		camera.rotation.x = clampf(camera.rotation.x, -1.4, 1.4)
 	elif rover:
-		# Conduciendo solo se puede bajar, beber oxígeno, comer y soltar el ratón.
+		# Conduciendo solo se puede bajar, beber oxígeno y comer.
 		if event.is_action_pressed("interact"):
 			get_out()
 		elif event.is_action_pressed("use_bottle"):
 			Game.use_bottle()
 		elif event.is_action_pressed("eat"):
 			Game.eat()
-		elif event.is_action_pressed("release_mouse"):
-			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		elif event is InputEventMouseButton and event.pressed and not captured:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
@@ -128,8 +126,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		Game.use_bottle()
 	elif event.is_action_pressed("eat"):
 		Game.eat()
-	elif event.is_action_pressed("release_mouse"):
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
 func _physics_process(delta: float) -> void:

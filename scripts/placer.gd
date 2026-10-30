@@ -104,7 +104,7 @@ func _input(event: InputEvent) -> void:
 				handled = false
 	elif event.is_action_pressed("rotate_building"):
 		_rotation += PI / 4.0
-	elif event.is_action_pressed("release_mouse"):
+	elif event.is_action_pressed("pause"):
 		cancel()
 	else:
 		handled = false
