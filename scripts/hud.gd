@@ -6,11 +6,11 @@ const Icons := preload("res://scripts/icons.gd")
 const Machine := preload("res://scripts/machine.gd")
 
 const MESSAGE_TIME := 4.0
-const ICON_SIZE := 72
-# Casilla del menú: con 9 columnas caben las 26 construcciones en 3 filas.
-const CELL_SIZE := Vector2(ICON_SIZE + 46, ICON_SIZE + 78)
-const MENU_COLUMNS := 9
-const TAB_NAMES := {"fabricar": "Fabricar", "construccion": "Construcción", "tecnologia": "Tecnología", "terraformacion": "Terraformación"}
+const ICON_SIZE := 56
+# Casilla del menú: pequeña para que quepan todas las secciones de una vez.
+const CELL_SIZE := Vector2(ICON_SIZE + 50, ICON_SIZE + 66)
+const MENU_COLUMNS := 11
+const SECTION_NAMES := {"fabricar": "Fabricar", "construccion": "Construcción", "tecnologia": "Tecnología", "terraformacion": "Terraformación"}
 # Lo que no sale en el inventario mientras no se tenga.
 const HIDDEN_WHEN_EMPTY := ["titanio", "cuarzo", "iridio", "placa", "circuito", "chip"]
 const MODE_COLORS := {
@@ -30,9 +30,10 @@ var jetpack_bar: ProgressBar
 var hint_label: Label
 var message_label: Label
 var menu_panel: PanelContainer
-var menu_grid: GridContainer
+var menu_sections: VBoxContainer
 var menu_scroll: ScrollContainer
-var tab_buttons := {}
+# Título de cada sección del menú, para desplazarse hasta ella.
+var _section_headers := {}
 var locker_panel: PanelContainer
 var locker_title: Label
 var locker_inventory: VBoxContainer
@@ -45,10 +46,6 @@ var mode_labels := {}
 var icons: Icons
 # Panel abierto ahora (el menú o la taquilla), o null.
 var _open_panel: Control
-# Pestaña del menú. Tab vuelve a la última usada; construir, a la última
-# pestaña de construir (_build_tab).
-var _tab := "fabricar"
-var _build_tab := "construccion"
 var _driving := false
 # La taquilla, máquina o maletero abierto: una Machine o un róver.
 var _locker: Node3D
@@ -185,7 +182,7 @@ func _input(event: InputEvent) -> void:
 			_close_panel()
 			get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("craft") and not get_tree().paused:
-		_show_menu(_tab)
+		_show_menu("")
 		get_viewport().set_input_as_handled()
 
 
@@ -249,38 +246,24 @@ func _build_menu_panel() -> void:
 	menu_panel = parts[0]
 	var title: Label = parts[2]
 	title.visible = false
-	var tabs := HBoxContainer.new()
-	tabs.add_theme_constant_override("separation", 6)
-	parts[1].add_child(tabs)
-	parts[1].move_child(tabs, 0)
-	var group := ButtonGroup.new()
-	for tab in TAB_NAMES:
-		var button := Button.new()
-		button.text = TAB_NAMES[tab]
-		button.toggle_mode = true
-		button.button_group = group
-		button.focus_mode = Control.FOCUS_NONE
-		button.custom_minimum_size = Vector2(140, 36)
-		button.add_theme_color_override("font_pressed_color", MODE_COLORS["construir"])
-		button.add_theme_color_override("font_hover_pressed_color", MODE_COLORS["construir"])
-		button.pressed.connect(_select_tab.bind(tab))
-		tabs.add_child(button)
-		tab_buttons[tab] = button
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tabs.add_child(spacer)
+	var header := HBoxContainer.new()
+	parts[1].add_child(header)
+	parts[1].move_child(header, 0)
+	var heading := Label.new()
+	heading.text = "Fabricar y construir"
+	heading.add_theme_font_size_override("font_size", 18)
+	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(heading)
 	var close_hint := Label.new()
 	close_hint.text = "Tab, clic derecho o Esc para cerrar"
 	close_hint.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
-	tabs.add_child(close_hint)
-	menu_grid = GridContainer.new()
-	menu_grid.columns = MENU_COLUMNS
-	menu_grid.add_theme_constant_override("h_separation", 8)
-	menu_grid.add_theme_constant_override("v_separation", 8)
-	# Las dos pestañas miden lo mismo; si no cabe todo, se desplaza con la rueda.
+	header.add_child(close_hint)
+	menu_sections = VBoxContainer.new()
+	menu_sections.add_theme_constant_override("separation", 6)
+	# Si no cabe todo en la pantalla, se desplaza con la rueda.
 	menu_scroll = ScrollContainer.new()
 	menu_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	menu_scroll.add_child(menu_grid)
+	menu_scroll.add_child(menu_sections)
 	parts[1].add_child(menu_scroll)
 
 
@@ -447,33 +430,28 @@ func _refresh_inventory() -> void:
 		_refresh_panel()
 
 
-func _show_menu(tab: String) -> void:
-	_tab = tab
-	tab_buttons[tab].button_pressed = true
-	var most := 1
-	for name in TAB_NAMES:
-		most = maxi(most, _tab_kinds(name).size())
-	var rows := ceili(most / float(MENU_COLUMNS))
-	var width := MENU_COLUMNS * (CELL_SIZE.x + 8)
-	var height := minf(rows * (CELL_SIZE.y + 8), get_viewport().get_visible_rect().size.y - 140)
+## Abre el menú con todas las secciones; con "section", desplazado hasta ella.
+func _show_menu(section: String) -> void:
+	var height := 0.0
+	for name in SECTION_NAMES:
+		var count := _section_kinds(name).size()
+		if count > 0:
+			height += 44.0 + ceili(count / float(MENU_COLUMNS)) * (CELL_SIZE.y + 6)
+	var width := MENU_COLUMNS * (CELL_SIZE.x + 6)
+	height = minf(height, get_viewport().get_visible_rect().size.y - 110)
 	menu_scroll.custom_minimum_size = Vector2(width, height)
 	_show_panel(menu_panel)
-
-
-func _select_tab(tab: String) -> void:
-	if tab != _tab:
-		Sfx.play("clic")
-	_tab = tab
-	if tab != "fabricar":
-		_build_tab = tab
-	tab_buttons[tab].button_pressed = true
 	menu_scroll.scroll_vertical = 0
-	_refresh_menu_grid()
+	if section != "" and _section_headers.has(section):
+		# Hay que esperar a que se coloquen las casillas para saber dónde queda.
+		await get_tree().process_frame
+		if _section_headers.has(section) and is_instance_valid(_section_headers[section]):
+			menu_scroll.scroll_vertical = int(_section_headers[section].position.y)
 
 
-## Lo que sale en una pestaña, en el orden de las recetas: solo lo
+## Lo que sale en una sección, en el orden de las recetas: solo lo
 ## desbloqueado.
-func _tab_kinds(tab: String) -> Array:
+func _section_kinds(tab: String) -> Array:
 	var kinds := []
 	for id in Game.RECIPES:
 		if not Game.is_unlocked(id):
@@ -487,7 +465,7 @@ func _tab_kinds(tab: String) -> Array:
 
 func _on_build_menu_requested() -> void:
 	if not get_tree().paused and not Game.dead:
-		_show_menu(_build_tab)
+		_show_menu("construccion")
 
 
 func _on_icons_finished() -> void:
@@ -495,65 +473,82 @@ func _on_icons_finished() -> void:
 		_refresh_menu_grid()
 
 
-## Una casilla por receta desbloqueada de la pestaña: icono, nombre y
-## coste. Las que no se pueden pagar salen apagadas.
+## Todas las secciones seguidas, cada una con su título y una casilla por
+## receta desbloqueada: icono, nombre y coste. Las que no se pueden pagar
+## salen apagadas. Las secciones sin nada desbloqueado no salen.
 func _refresh_menu_grid() -> void:
-	for child in menu_grid.get_children():
+	for child in menu_sections.get_children():
+		menu_sections.remove_child(child)
 		child.queue_free()
-	var kinds := _tab_kinds(_tab)
-	if kinds.is_empty():
-		var empty := Label.new()
-		empty.text = "Aún no hay nada desbloqueado aquí."
-		empty.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
-		menu_grid.add_child(empty)
-	for id in kinds:
-		var recipe: Dictionary = Game.RECIPES[id]
-		var owned := _owned(id)
-		var button := Button.new()
-		button.custom_minimum_size = CELL_SIZE
-		button.focus_mode = Control.FOCUS_NONE
-		button.disabled = not Game.can_craft(id) or (_driving and _tab != "fabricar")
-		button.pressed.connect(_on_item_pressed.bind(id))
-		button.tooltip_text = _tooltip(id)
-		var box := VBoxContainer.new()
-		box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		box.alignment = BoxContainer.ALIGNMENT_CENTER
-		box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		box.add_theme_constant_override("separation", 2)
-		button.add_child(box)
-		var icon := TextureRect.new()
-		icon.custom_minimum_size = Vector2(ICON_SIZE, ICON_SIZE)
-		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		icon.texture = icons.textures.get(id)
-		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		if button.disabled and not owned:
-			icon.modulate = Color(1, 1, 1, 0.45)
-		box.add_child(icon)
-		var name_label := _small_label(recipe["name"], 13)
-		box.add_child(name_label)
-		var cost_text: String = Game.cost_text(recipe["cost"])
-		var cost_color := Color(0.75, 0.75, 0.75)
-		if owned:
-			cost_text = "Ya lo tienes"
-			cost_color = Color(0.55, 0.9, 0.55)
-		var cost_label := _small_label(cost_text, 11)
-		cost_label.add_theme_color_override("font_color", cost_color)
-		box.add_child(cost_label)
-		var count := int(Game.inventory.get(id, 0))
-		if recipe["kind"] == "consumable" and count > 0:
-			# Cuántas lleva ya, en la esquina de arriba a la derecha.
-			var count_label := Label.new()
-			count_label.text = "x%d" % count
-			count_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-			count_label.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-			count_label.offset_right = -6
-			count_label.offset_top = 2
-			count_label.add_theme_font_size_override("font_size", 13)
-			count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			button.add_child(count_label)
-		menu_grid.add_child(button)
+	_section_headers.clear()
+	for section in SECTION_NAMES:
+		var kinds := _section_kinds(section)
+		if kinds.is_empty():
+			continue
+		var header := Label.new()
+		header.text = SECTION_NAMES[section]
+		header.add_theme_font_size_override("font_size", 16)
+		header.add_theme_color_override("font_color", MODE_COLORS["construir"])
+		menu_sections.add_child(header)
+		_section_headers[section] = header
+		menu_sections.add_child(HSeparator.new())
+		var grid := GridContainer.new()
+		grid.columns = MENU_COLUMNS
+		grid.add_theme_constant_override("h_separation", 6)
+		grid.add_theme_constant_override("v_separation", 6)
+		menu_sections.add_child(grid)
+		for id in kinds:
+			grid.add_child(_menu_cell(id, section))
+
+
+func _menu_cell(id: String, section: String) -> Button:
+	var recipe: Dictionary = Game.RECIPES[id]
+	var owned := _owned(id)
+	var button := Button.new()
+	button.custom_minimum_size = CELL_SIZE
+	button.focus_mode = Control.FOCUS_NONE
+	button.disabled = not Game.can_craft(id) or (_driving and section != "fabricar")
+	button.pressed.connect(_on_item_pressed.bind(id))
+	button.tooltip_text = _tooltip(id)
+	var box := VBoxContainer.new()
+	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_theme_constant_override("separation", 2)
+	button.add_child(box)
+	var icon := TextureRect.new()
+	icon.custom_minimum_size = Vector2(ICON_SIZE, ICON_SIZE)
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	icon.texture = icons.textures.get(id)
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if button.disabled and not owned:
+		icon.modulate = Color(1, 1, 1, 0.45)
+	box.add_child(icon)
+	var name_label := _small_label(recipe["name"], 12)
+	box.add_child(name_label)
+	var cost_text: String = Game.cost_text(recipe["cost"])
+	var cost_color := Color(0.75, 0.75, 0.75)
+	if owned:
+		cost_text = "Ya lo tienes"
+		cost_color = Color(0.55, 0.9, 0.55)
+	var cost_label := _small_label(cost_text, 11)
+	cost_label.add_theme_color_override("font_color", cost_color)
+	box.add_child(cost_label)
+	var count := int(Game.inventory.get(id, 0))
+	if recipe["kind"] == "consumable" and count > 0:
+		# Cuántas lleva ya, en la esquina de arriba a la derecha.
+		var count_label := Label.new()
+		count_label.text = "x%d" % count
+		count_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+		count_label.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+		count_label.offset_right = -6
+		count_label.offset_top = 2
+		count_label.add_theme_font_size_override("font_size", 13)
+		count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.add_child(count_label)
+	return button
 
 
 ## Las herramientas se fabrican una sola vez.

@@ -83,7 +83,6 @@ func _ready() -> void:
 	_flashlight.spot_angle = 28.0
 	_flashlight.light_energy = 2.5
 	_flashlight.light_color = Color(1.0, 0.95, 0.85)
-	_flashlight.shadow_enabled = true
 	_flashlight.position = Vector3(0.15, 0.05, 0.0)
 	_flashlight.visible = false
 	camera.add_child(_flashlight)

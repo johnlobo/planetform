@@ -34,12 +34,12 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 
 ## Cómo se juega
 
-- **Fabricar y construir** comparten un menú con cuatro pestañas y un icono por receta. En **Fabricar** están las herramientas, las botellas, las semillas, el guiso y los componentes: van al inventario y el menú sigue abierto para hacer más. Lo que se coloca en el mundo está repartido en **Construcción** (base, muebles, pantallas), **Tecnología** (energía, vehículos, automatización) y **Terraformación** (lo que sube las métricas del planeta): al elegirlo, la herramienta pasa a modo construir y empieza la colocación. Solo sale lo desbloqueado; lo demás no se enseña.
+- **Fabricar y construir** comparten un menú: una sola lista con cuatro secciones separadas por un título, un icono por receta y la rueda para bajar si no cabe. En **Fabricar** están las herramientas, las botellas, las semillas, el guiso y los componentes: van al inventario y el menú sigue abierto para hacer más. Lo que se coloca en el mundo está repartido en **Construcción** (base, muebles, pantallas), **Tecnología** (energía, vehículos, automatización) y **Terraformación** (lo que sube las métricas del planeta): al elegirlo, la herramienta pasa a modo construir y empieza la colocación. Tab abre el menú arriba; el modo construir, en Construcción. Solo sale lo desbloqueado; lo demás no se enseña.
 
 - **Materiales avanzados y sitios recónditos** (a partir de 250 m de la base):
-  - **Cuevas** (23 en el mapa): bóvedas de roca con una boca. Dentro está oscuro (fabrica la **linterna**, L). Tienen **titanio** en las paredes, **cuarzo** rosa al fondo y, en la mitad, una caja de suministros.
-  - **Restos de naves** (24, desde 300 m): cada uno con una caja de suministros.
-  - **Cráteres** (10, desde 600 m): un meteorito de **iridio** en medio.
+  - **Cuevas** (53 en el mapa, en laderas de montaña): una bóveda de roca metida en la montaña, con un pasillo excavado hasta la boca. Dentro está oscuro (fabrica la **linterna**, L). Tienen **titanio** en las paredes, **cuarzo** rosa al fondo y, en la mitad, una caja de suministros.
+  - **Restos de naves** (18, desde 300 m): cada uno con una caja de suministros.
+  - **Cráteres** (14, desde 600 m): el terreno se hunde 6 m hacia el centro, con el borde levantado y rocas alrededor, y un meteorito de **iridio** en el fondo.
   - El titanio y el cuarzo piden el taladro mejorado; el iridio, el térmico. Tardan 5 minutos en reaparecer.
   - Con titanio se fabrica la **placa de aleación** (2 titanio + 1 hierro) y con cuarzo el **circuito** (1 cuarzo + 1 cobre + 1 silicio); aparecen en Fabricar al recoger el material por primera vez.
 - **Desbloqueos.** Cada caja de suministros se abre una vez y da un **chip de datos** o un **fragmento de plano**. Las tecnologías avanzadas se desbloquean así:

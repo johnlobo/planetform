@@ -42,17 +42,20 @@ const RESOURCES_PER_CHUNK := 6
 const ICE_SUMMIT := 12.0 # el hielo por encima no se funde
 # Sitios recónditos (scripts/sites.gd): como mucho uno por trozo y solo a
 # partir de SITE_MIN metros del centro. Probabilidad de cada uno por trozo;
-# las cuevas, más en las montañas, y los cráteres, solo lejos.
+# las cuevas solo salen donde hay una ladera y los cráteres, solo lejos.
 const SITE_MIN := 250.0
 const WRECK_MIN := 300.0
 const CRATER_MIN := 600.0
-const CAVE_CHANCE := 0.12
-const CAVE_MOUNTAIN_CHANCE := 0.3
+const CAVE_CHANCE := 0.15
 const WRECK_CHANCE := 0.1
-const CRATER_CHANCE := 0.1
+const CRATER_CHANCE := 0.25
 const SITE_TRIES := 24
-# Diferencia de altura máxima bajo el sitio para que quepa.
-const SITE_FLAT := {"cueva": 4.0, "nave": 3.0, "crater": 3.0}
+# La montaña sube detrás de la cueva entre CAVE_RISE y CAVE_MAX_RISE metros.
+const CAVE_RISE := 4.0
+# La loma que tapa la bóveda por fuera llega a su altura a este tanto de su radio.
+const MOUND_SCALE := 1.5
+const CAVE_MAX_RISE := 45.0
+const SITE_FLAT := {"nave": 3.0, "crater": 4.0}
 
 ## El nodo main: crea los recursos y lleva el deshielo.
 var world: Node3D
@@ -80,6 +83,8 @@ var _deco_material := StandardMaterial3D.new()
 var _check_time := 0.0
 # Sitio recóndito del trozo que se está preparando.
 var _avoid := {}
+# Sitios recónditos por trozo (Vector2i), para excavar el terreno.
+var _sites := {}
 
 
 func _init() -> void:
@@ -118,6 +123,13 @@ void fragment() {
 	_build_deco_meshes()
 	add_child(body)
 	var count := int(WORLD_SIZE / CHUNK)
+	# Primero los sitios recónditos: cambian la altura del terreno.
+	for i in count:
+		for j in count:
+			var key := Vector2i(i, j)
+			var site := site_of(key, Vector3(-WORLD_SIZE / 2.0 + (i + 0.5) * CHUNK, 0.0, -WORLD_SIZE / 2.0 + (j + 0.5) * CHUNK))
+			if not site.is_empty():
+				_sites[key] = site
 	for i in count:
 		for j in count:
 			var key := Vector2i(i, j)
@@ -128,7 +140,7 @@ void fragment() {
 			far.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			far.position = center
 			add_child(far)
-			_chunks[key] = {"center": center, "far": far, "detail": null, "shape": null, "trees": null, "ice": [], "site": site_of(key, center)}
+			_chunks[key] = {"center": center, "far": far, "detail": null, "shape": null, "trees": null, "ice": [], "site": _sites.get(key, {})}
 	for key in _chunks:
 		if _distance(_chunks[key], around) < NEAR_RANGE:
 			_load(key)
@@ -138,7 +150,7 @@ void fragment() {
 ## Altura del terreno en un vértice de la malla: la del ruido, salvo donde se
 ## ha excavado para construir (Game.digs).
 func height_at(x: float, z: float) -> float:
-	var h := _noise_height(x, z)
+	var h := _carve(x, z, _noise_height(x, z))
 	if not Game.digs.is_empty():
 		var key := _vertex(x, z)
 		# Solo en los vértices: entre ellos manda el ruido (pendientes).
@@ -301,7 +313,8 @@ func _load(key: Vector2i) -> void:
 
 
 ## El sitio recóndito de un trozo: {"type", "pos", "rot"} o {} si no hay.
-## Depende solo del trozo, así que siempre sale igual.
+## Depende solo del trozo, así que siempre sale igual. Se mira con la altura
+## del ruido, antes de excavar.
 func site_of(key: Vector2i, center: Vector3) -> Dictionary:
 	var distance := Vector2(center.x, center.z).length()
 	if distance < SITE_MIN:
@@ -309,37 +322,118 @@ func site_of(key: Vector2i, center: Vector3) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([key.x, key.y, "sitio"])
 	var roll := rng.randf()
-	var mountain := smoothstep(MOUNTAIN_START, MOUNTAIN_FULL, distance) * smoothstep(-0.1, 0.35, _ranges.get_noise_2d(center.x, center.z))
-	var cave_chance := lerpf(CAVE_CHANCE, CAVE_MOUNTAIN_CHANCE, mountain)
 	var type := ""
-	if roll < cave_chance:
+	if roll < CAVE_CHANCE:
 		type = "cueva"
-	elif roll < cave_chance + WRECK_CHANCE and distance >= WRECK_MIN:
+	elif roll < CAVE_CHANCE + WRECK_CHANCE and distance >= WRECK_MIN:
 		type = "nave"
-	elif roll < cave_chance + WRECK_CHANCE + CRATER_CHANCE and distance >= CRATER_MIN:
+	elif roll < CAVE_CHANCE + WRECK_CHANCE + CRATER_CHANCE and distance >= CRATER_MIN:
 		type = "crater"
 	if type == "":
 		return {}
-	var radius: float = Sites.RADIUS[type]
-	var margin := radius + 2.0
+	var margin: float = Sites.RADIUS[type] + 2.0
 	for n in SITE_TRIES:
 		var x := center.x + rng.randf_range(-CHUNK / 2.0 + margin, CHUNK / 2.0 - margin)
 		var z := center.z + rng.randf_range(-CHUNK / 2.0 + margin, CHUNK / 2.0 - margin)
 		var rot := rng.randf_range(0.0, TAU)
-		var low := INF
-		var high := -INF
-		for k in 9:
-			var p := Vector2(x, z) if k == 8 else Vector2(x, z) + Vector2.from_angle(k * TAU / 8.0) * radius
-			var h := height_at(p.x, p.y)
-			low = minf(low, h)
-			high = maxf(high, h)
-		if high - low > float(SITE_FLAT[type]) or low < DRY_LEVEL + 0.5:
-			continue
-		# La cueva va a media altura y algo hundida: su borde baja casi 3 m
-		# bajo el suelo, así que no quedan rendijas por el lado más bajo.
-		var y := (low + high) / 2.0 - 0.3 if type == "cueva" else height_at(x, z)
-		return {"type": type, "pos": Vector3(x, y, z), "rot": rot}
+		var site := {}
+		match type:
+			"cueva":
+				site = _cave_site(x, z)
+			"nave":
+				if _flat(x, z, Sites.RADIUS[type], SITE_FLAT[type]):
+					site = {"pos": Vector3(x, _noise_height(x, z), z), "rot": rot}
+			"crater":
+				# El fondo del cráter tiene que quedar por encima del agua.
+				if _flat(x, z, Sites.RADIUS[type], SITE_FLAT[type]) and _noise_height(x, z) - Sites.CRATER_DEPTH > DRY_LEVEL + 0.5:
+					site = {"pos": Vector3(x, _noise_height(x, z) - Sites.CRATER_DEPTH, z), "rot": rot}
+		if not site.is_empty():
+			site["type"] = type
+			return site
 	return {}
+
+
+## Cueva metida en la ladera de una montaña: la boca mira cuesta abajo y
+## detrás el terreno sube al menos CAVE_RISE metros, así que la bóveda queda
+## dentro de la montaña. {} si en (x, z) no hay ladera que sirva.
+func _cave_site(x: float, z: float) -> Dictionary:
+	var dx := _noise_height(x + 2.0, z) - _noise_height(x - 2.0, z)
+	var dz := _noise_height(x, z + 2.0) - _noise_height(x, z - 2.0)
+	var downhill := -Vector2(dx, dz)
+	if downhill.length() < 0.01:
+		return {}
+	var rot := atan2(downhill.x, downhill.y)
+	var basis := Basis(Vector3.UP, rot)
+	var r := Sites.CAVE_RADIUS
+	var at := func(local: Vector3) -> float:
+		var p := Vector3(x, 0, z) + basis * local
+		return _noise_height(p.x, p.z)
+	var floor_y: float = at.call(Vector3(0, 0, r * 0.9))
+	var back: float = at.call(Vector3(0, 0, -r))
+	if floor_y < DRY_LEVEL + 0.5 or back - floor_y < CAVE_RISE or back - floor_y > CAVE_MAX_RISE:
+		return {}
+	# A los lados el suelo no puede quedar por debajo del borde de la bóveda.
+	for side in [-1.0, 1.0]:
+		if at.call(Vector3(side * r, 0, 0)) < floor_y - 2.0:
+			return {}
+	return {"pos": Vector3(x, floor_y - 0.2, z), "rot": rot}
+
+
+## true si la diferencia de altura en un círculo de radio "radius" no pasa de "flat".
+func _flat(x: float, z: float, radius: float, flat: float) -> bool:
+	var low := INF
+	var high := -INF
+	for k in 9:
+		var p := Vector2(x, z) if k == 8 else Vector2(x, z) + Vector2.from_angle(k * TAU / 8.0) * radius
+		var h := _noise_height(p.x, p.y)
+		low = minf(low, h)
+		high = maxf(high, h)
+	return high - low <= flat and low >= DRY_LEVEL + 0.5
+
+
+## Altura del terreno con lo que cambia el sitio recóndito del trozo: la
+## cueva excava su suelo y un pasillo hasta la boca; el cráter hunde el
+## centro y levanta un borde.
+func _carve(x: float, z: float, h: float) -> float:
+	var site: Dictionary = _sites.get(_chunk_key(x, z), {})
+	if site.is_empty():
+		return h
+	var pos: Vector3 = site["pos"]
+	match String(site["type"]):
+		"cueva":
+			var local := Basis(Vector3.UP, -float(site["rot"])) * Vector3(x - pos.x, 0.0, z - pos.z)
+			var r := Sites.CAVE_RADIUS
+			var d := Vector2(local.x, local.z).length()
+			# Delante de la boca no hay montaña: queda un pasillo hasta fuera.
+			var front := 0.0
+			if local.z > 0.0:
+				front = 1.0 - smoothstep(Sites.MOUTH_HALF, Sites.MOUTH_HALF + 3.0, absf(local.x))
+			# Alrededor, una loma tan alta como la bóveda la tapa por fuera
+			# aunque la ladera sea suave; luego baja hasta el terreno.
+			# Sube poco a poco desde la bóveda para no meterse en ella.
+			var mound := pos.y + (Sites.CAVE_HEIGHT * 1.15 + 0.5) * smoothstep(r * 1.1, r * MOUND_SCALE, d)
+			mound = lerpf(mound, h, smoothstep(r * MOUND_SCALE, r * MOUND_SCALE + 10.0, d))
+			h = maxf(h, lerpf(mound, h, front))
+			# Dentro, el suelo se excava hasta el de la cueva, y el pasillo también.
+			# Se excava algo más allá de la bóveda para que la pared de tierra
+			# no asome por dentro.
+			var dig := 0.0
+			if d < r * 1.1:
+				dig = 1.0
+			elif local.z > 0.0:
+				dig = front * (1.0 - smoothstep(r + 6.0, r + 9.0, local.z))
+			return minf(h, lerpf(h, pos.y, dig))
+		"crater":
+			var d := Vector2(x - pos.x, z - pos.z).length()
+			var rc := Sites.CRATER_RADIUS
+			if d > rc + 8.0:
+				return h
+			# Perfil de coseno: la pendiente no pasa de unos 40 grados y se
+			# puede salir andando.
+			var bowl := Sites.CRATER_DEPTH * (0.5 + 0.5 * cos(PI * d / rc)) if d < rc else 0.0
+			var rim := Sites.CRATER_RIM * exp(-pow((d - rc - 1.0) / 3.0, 2.0))
+			return h - bowl + rim
+	return h
 
 
 func _build_site(chunk: Dictionary, detail: Node3D, key: Vector2i) -> void:

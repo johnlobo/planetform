@@ -2,8 +2,8 @@ extends RefCounted
 ## Sitios recónditos del mapa, lejos de la base: cuevas con titanio y cuarzo,
 ## restos de naves con cajas de suministros y cráteres con un meteorito de
 ## iridio. El terreno es una sola superficie de alturas y no puede tener
-## huecos, así que las cuevas son una bóveda de roca sobre el suelo con una
-## boca para entrar.
+## huecos, así que las cuevas son una bóveda de roca metida en la ladera de
+## una montaña: el terreno excava su suelo y la boca (Terrain._carve).
 
 const LootCrate := preload("res://scripts/loot_crate.gd")
 
@@ -14,9 +14,13 @@ const CAVE_RINGS := 6
 # Anillos de abajo que se quitan en la boca y ángulo de la boca a cada lado.
 const MOUTH_RINGS := 3
 const MOUTH_ANGLE := 0.35
-const CRATER_RADIUS := 7.0
+const CRATER_RADIUS := 11.0
+const CRATER_DEPTH := 6.0 # metros que se hunde el centro
+const CRATER_RIM := 1.5 # y lo que se levanta el borde
+# Media anchura de la boca y del pasillo excavado delante.
+const MOUTH_HALF := 4.5
 # Radio que ocupa cada sitio: dentro no se ponen rocas, árboles ni depósitos.
-const RADIUS := {"cueva": CAVE_RADIUS + 2.0, "nave": 8.0, "crater": CRATER_RADIUS + 2.5}
+const RADIUS := {"cueva": CAVE_RADIUS + 16.0, "nave": 8.0, "crater": CRATER_RADIUS + 8.0}
 
 
 ## Cueva en "pos" (coordenadas del mundo) con la boca hacia "rot". Devuelve
@@ -37,7 +41,8 @@ static func cave(world: Node3D, pos: Vector3, rot: float, center: Vector3, id: S
 		var phi := lerpf(-0.25, 1.0, float(i) / CAVE_RINGS) * PI / 2.0
 		for j in CAVE_SEGMENTS:
 			var theta := j * TAU / CAVE_SEGMENTS
-			var jitter := 1.0 if i == CAVE_RINGS else rng.randf_range(0.85, 1.12)
+			# Los dos anillos de abajo, sin mover: rodean justo el suelo excavado.
+			var jitter := 1.0 if i <= 1 or i == CAVE_RINGS else rng.randf_range(0.85, 1.12)
 			ring.append(Vector3(sin(theta) * cos(phi) * CAVE_RADIUS * jitter, sin(phi) * CAVE_HEIGHT * jitter, cos(theta) * cos(phi) * CAVE_RADIUS * jitter))
 		points.append(ring)
 	for i in CAVE_RINGS:
@@ -153,7 +158,8 @@ static func wreck(world: Node3D, pos: Vector3, rot: float, center: Vector3, id: 
 	return root
 
 
-## Cráter: un anillo de rocas con un meteorito de iridio en medio.
+## Cráter: el terreno se hunde en medio (Terrain._carve) con un anillo de
+## rocas en el borde y un meteorito de iridio en el fondo.
 static func crater(world: Node3D, pos: Vector3, rot: float, center: Vector3, boulder: Mesh, rng: RandomNumberGenerator) -> Node3D:
 	var root := StaticBody3D.new()
 	root.position = pos - center
@@ -163,12 +169,12 @@ static func crater(world: Node3D, pos: Vector3, rot: float, center: Vector3, bou
 	rock.vertex_color_use_as_albedo = true
 	rock.albedo_color = Color(1.0, 0.85, 0.75)
 	rock.roughness = 1.0
-	var count := 14
+	var count := 9
 	for n in count:
 		var theta := n * TAU / count + rng.randf_range(-0.1, 0.1)
-		var local := Vector3(sin(theta), 0, cos(theta)) * CRATER_RADIUS * rng.randf_range(0.9, 1.1)
+		var local := Vector3(sin(theta), 0, cos(theta)) * CRATER_RADIUS * rng.randf_range(1.1, 1.25)
 		var global := pos + basis * local
-		var size := rng.randf_range(0.8, 1.4)
+		var size := rng.randf_range(0.6, 1.1)
 		local.y = world.surface_height(global.x, global.z) - pos.y - 0.3 * size
 		var instance := MeshInstance3D.new()
 		instance.mesh = boulder
@@ -183,21 +189,6 @@ static func crater(world: Node3D, pos: Vector3, rot: float, center: Vector3, bou
 		collision.shape = sphere
 		collision.position = local + Vector3(0, 0.3 * size, 0)
 		root.add_child(collision)
-	# Tierra quemada alrededor del meteorito.
-	var scorch := CylinderMesh.new()
-	scorch.top_radius = CRATER_RADIUS * 0.8
-	scorch.bottom_radius = CRATER_RADIUS * 0.8
-	scorch.height = 0.6
-	scorch.radial_segments = 12
-	scorch.rings = 1
-	var burnt := StandardMaterial3D.new()
-	burnt.albedo_color = Color(0.16, 0.13, 0.13)
-	burnt.roughness = 1.0
-	var ground := MeshInstance3D.new()
-	ground.mesh = scorch
-	ground.material_override = burnt
-	ground.position.y = -0.22
-	root.add_child(ground)
 	var meteor: Node3D = world.make_resource("iridio")
 	meteor.scale *= 2.0
 	root.add_child(meteor)
