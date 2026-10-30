@@ -20,7 +20,7 @@ const CRATER_RIM := 1.5 # y lo que se levanta el borde
 # Media anchura de la boca y del pasillo excavado delante.
 const MOUTH_HALF := 4.5
 # Radio que ocupa cada sitio: dentro no se ponen rocas, árboles ni depósitos.
-const RADIUS := {"cueva": CAVE_RADIUS + 16.0, "nave": 8.0, "crater": CRATER_RADIUS + 8.0}
+const RADIUS := {"cueva": CAVE_RADIUS + 23.0, "nave": 8.0, "crater": CRATER_RADIUS + 8.0}
 
 
 ## Cueva en "pos" (coordenadas del mundo) con la boca hacia "rot". Devuelve

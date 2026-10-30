@@ -54,6 +54,9 @@ const SITE_TRIES := 24
 const CAVE_RISE := 4.0
 # La loma que tapa la bóveda por fuera llega a su altura a este tanto de su radio.
 const MOUND_SCALE := 1.5
+# Rampa de la entrada: metros de largo desde la boca y pendiente (unos 30 grados).
+const RAMP_LENGTH := 22.0
+const RAMP_SLOPE := 0.6
 const CAVE_MAX_RISE := 45.0
 const SITE_FLAT := {"nave": 3.0, "crater": 4.0}
 
@@ -376,6 +379,9 @@ func _cave_site(x: float, z: float) -> Dictionary:
 	for side in [-1.0, 1.0]:
 		if at.call(Vector3(side * r, 0, 0)) < floor_y - 2.0:
 			return {}
+	# Y al final de la rampa de la entrada tiene que llegar al suelo.
+	if at.call(Vector3(0, 0, r + RAMP_LENGTH)) < floor_y - RAMP_LENGTH * RAMP_SLOPE:
+		return {}
 	return {"pos": Vector3(x, floor_y - 0.2, z), "rot": rot}
 
 
@@ -414,15 +420,21 @@ func _carve(x: float, z: float, h: float) -> float:
 			var mound := pos.y + (Sites.CAVE_HEIGHT * 1.15 + 0.5) * smoothstep(r * 1.1, r * MOUND_SCALE, d)
 			mound = lerpf(mound, h, smoothstep(r * MOUND_SCALE, r * MOUND_SCALE + 10.0, d))
 			h = maxf(h, lerpf(mound, h, front))
-			# Dentro, el suelo se excava hasta el de la cueva, y el pasillo también.
-			# Se excava algo más allá de la bóveda para que la pared de tierra
-			# no asome por dentro.
-			var dig := 0.0
+			# Dentro, el suelo se excava hasta el de la cueva. Se excava algo
+			# más allá de la bóveda para que la pared de tierra no asome por dentro.
 			if d < r * 1.1:
-				dig = 1.0
-			elif local.z > 0.0:
-				dig = front * (1.0 - smoothstep(r + 6.0, r + 9.0, local.z))
-			return minf(h, lerpf(h, pos.y, dig))
+				return minf(h, pos.y)
+			# Delante, una rampa hasta la boca: se excava lo que sobra y se
+			# rellena lo que falta para que se pueda subir andando.
+			# La rampa va en línea recta desde la boca hasta la altura que tiene
+			# el terreno al final, así no tiene escalones.
+			if local.z > 0.0:
+				var end := Vector3(pos.x, 0.0, pos.z) + Basis(Vector3.UP, float(site["rot"])) * Vector3(0, 0, r + RAMP_LENGTH)
+				var end_y := clampf(_noise_height(end.x, end.z), pos.y - RAMP_LENGTH * RAMP_SLOPE, pos.y)
+				var ramp := lerpf(pos.y, end_y, clampf((local.z - r) / RAMP_LENGTH, 0.0, 1.0))
+				var weight := front * (1.0 - smoothstep(r + RAMP_LENGTH - 3.0, r + RAMP_LENGTH + 2.0, local.z))
+				return lerpf(h, ramp, weight)
+			return h
 		"crater":
 			var d := Vector2(x - pos.x, z - pos.z).length()
 			var rc := Sites.CRATER_RADIUS
