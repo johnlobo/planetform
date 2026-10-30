@@ -9,6 +9,15 @@ const Machine := preload("res://scripts/machine.gd")
 const Module := preload("res://scripts/module.gd")
 const Rover := preload("res://scripts/rover.gd")
 const SIZE := 128
+## Objetos del inventario que no son recetas y también necesitan icono.
+const EXTRA := ["bolsa", "hierro", "silicio", "hielo", "cobre", "agua", "racion", "verdura",
+		"titanio", "cuarzo", "iridio", "chip"]
+## Color de los trozos de roca y los cristales.
+const ROCKS := {"hierro": Color(0.55, 0.35, 0.25), "cobre": Color(0.3, 0.65, 0.5),
+		"titanio": Color(0.78, 0.8, 0.86), "iridio": Color(0.22, 0.18, 0.3)}
+const CRYSTALS := {"silicio": Color(0.55, 0.85, 0.95), "cuarzo": Color(0.95, 0.6, 0.9)}
+const PACK_COLORS := {"bolsa": Color(0.45, 0.47, 0.5), "mochila": Color(0.8, 0.5, 0.2),
+		"mochila_reforzada": Color(0.3, 0.55, 0.75), "mochila_aleacion": Color(0.75, 0.78, 0.86)}
 
 ## {pieza: ImageTexture}; vacío hasta que se emite finished.
 var textures := {}
@@ -67,7 +76,7 @@ func _scene(kind: String) -> SubViewport:
 	viewport.add_child(camera)
 	# Vista de tres cuartos desde delante (-Z) y algo de arriba; las puertas y
 	# ventanas se miran más de frente para que se vea el hueco.
-	var direction := Vector3(0.55, 0.45, -1.0) if Game.RECIPES[kind]["kind"] == "fitting" else Vector3(0.8, 0.7, -1.0)
+	var direction := Vector3(0.55, 0.45, -1.0) if Game.RECIPES.get(kind, {}).get("kind", "") == "fitting" else Vector3(0.8, 0.7, -1.0)
 	# Los pasillos, más desde arriba para que se vea su forma.
 	if kind.begins_with("pasillo"):
 		direction = Vector3(0.45, 1.6, -0.8)
@@ -77,7 +86,7 @@ func _scene(kind: String) -> SubViewport:
 
 
 func _model(kind: String) -> Node3D:
-	match String(Game.RECIPES[kind]["kind"]):
+	match String(Game.RECIPES.get(kind, {}).get("kind", "tool")):
 		"tool", "consumable":
 			return _item(kind)
 		"module":
@@ -201,6 +210,60 @@ func _item(kind: String) -> Node3D:
 			quartz.emission_enabled = true
 			quartz.emission = Color(0.6, 0.2, 0.55)
 			_part(root, _box(Vector3(0.12, 0.12, 0.12)), quartz, Vector3(0.3, 0.1, 0.25))
+		"bolsa", "mochila", "mochila_reforzada", "mochila_aleacion":
+			var cloth := _material(PACK_COLORS[kind], 0.2 if kind == "mochila_aleacion" else 0.0)
+			_part(root, _box(Vector3(0.8, 1.0, 0.45)), cloth, Vector3.ZERO)
+			var flap := _part(root, _box(Vector3(0.84, 0.34, 0.5)), cloth.duplicate(), Vector3(0, 0.38, 0))
+			(flap.material_override as StandardMaterial3D).albedo_color = PACK_COLORS[kind].darkened(0.2)
+			_part(root, _box(Vector3(0.5, 0.3, 0.12)), _material(PACK_COLORS[kind].lightened(0.15), 0.0), Vector3(0, -0.25, 0.28))
+			_part(root, _box(Vector3(0.12, 0.2, 0.06)), metal, Vector3(0, 0.2, 0.28))
+			for x in [-0.25, 0.25]:
+				_part(root, _box(Vector3(0.1, 0.9, 0.06)), dark, Vector3(x, 0, -0.25))
+			if kind != "bolsa":
+				# Una tira de refuerzo por nivel.
+				for i in Game.backpack_index(kind):
+					_part(root, _box(Vector3(0.86, 0.05, 0.47)), metal, Vector3(0, -0.4 + 0.18 * i, 0))
+		"hierro", "cobre", "titanio", "iridio":
+			var rock := _material(ROCKS[kind], 0.3)
+			if kind == "iridio":
+				rock.emission_enabled = true
+				rock.emission = Color(0.35, 0.15, 0.6)
+			for offset in [Vector3(-0.3, -0.15, 0.1), Vector3(0.3, -0.2, -0.05), Vector3(0.0, 0.15, 0.0)]:
+				_part(root, _sphere(0.36 if offset.y > 0.0 else 0.42, 5), rock, offset)
+		"silicio", "cuarzo":
+			var crystal := _material(CRYSTALS[kind], 0.1)
+			if kind == "cuarzo":
+				crystal.emission_enabled = true
+				crystal.emission = Color(0.6, 0.2, 0.55)
+			for offset in [Vector3(0, 0, 0), Vector3(-0.32, -0.2, 0.1), Vector3(0.3, -0.25, 0.0)]:
+				var height := 1.0 if offset.x == 0.0 else 0.6
+				_part(root, _cylinder(0.0, 0.2, height, 5), crystal, offset + Vector3(0, height / 2.0 - 0.3, 0))
+		"hielo":
+			var ice := _material(Color(0.85, 0.95, 1.0), 0.1)
+			_part(root, _box(Vector3(1.0, 0.3, 0.8)), ice, Vector3(0, -0.15, 0))
+			var top := _part(root, _box(Vector3(0.6, 0.3, 0.5)), ice, Vector3(0.1, 0.12, 0.05))
+			top.rotation_degrees.y = 20.0
+		"agua":
+			var water := _material(Color(0.3, 0.6, 1.0), 0.0)
+			_part(root, _sphere(0.4, 8), water, Vector3(0, -0.15, 0))
+			_part(root, _cylinder(0.0, 0.3, 0.55, 8), water, Vector3(0, 0.3, 0))
+		"racion":
+			_part(root, _box(Vector3(0.9, 0.35, 0.6)), _material(Color(0.45, 0.5, 0.3), 0.0), Vector3.ZERO)
+			_part(root, _box(Vector3(0.92, 0.37, 0.18)), _material(Color(0.95, 0.6, 0.15), 0.0), Vector3.ZERO)
+		"verdura":
+			var carrot := _part(root, _cylinder(0.22, 0.0, 0.9, 6), _material(Color(1.0, 0.6, 0.15), 0.0), Vector3(0, -0.1, 0))
+			carrot.rotation_degrees.z = 25.0
+			var leaf := _material(Color(0.35, 0.8, 0.3), 0.0)
+			for angle in [-15.0, 10.0, 35.0]:
+				var blade := _part(root, _cylinder(0.0, 0.07, 0.4, 4), leaf, Vector3(0.2 + angle / 150.0, 0.45, 0))
+				blade.rotation_degrees.z = angle - 25.0
+		"chip":
+			_part(root, _box(Vector3(0.8, 0.1, 0.8)), _material(Color(0.12, 0.14, 0.2), 0.3), Vector3.ZERO)
+			_part(root, _box(Vector3(0.4, 0.12, 0.4)), dark, Vector3(0, 0.08, 0))
+			var pin := _material(Color(0.95, 0.75, 0.3), 0.8)
+			for i in 5:
+				for x in [-0.45, 0.45]:
+					_part(root, _box(Vector3(0.1, 0.06, 0.06)), pin, Vector3(x, 0, -0.32 + 0.16 * i))
 		_:
 			_part(root, _box(Vector3.ONE * 0.6), metal, Vector3.ZERO)
 	return root

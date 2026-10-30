@@ -11,7 +11,6 @@ const SPEED := 6.0
 const JUMP_VELOCITY := 4.5
 const MOUSE_SENSITIVITY := 0.0025
 const REACH := 4.0
-const WADE_DEPTH := 0.4 # metros de agua a partir de los que se anda más despacio
 const WADE_FACTOR := 0.55
 const STEP_DISTANCE := 2.2 # metros entre pisadas
 const LANDING_MIN_AIR_TIME := 0.25 # segundos en el aire para que suene el aterrizaje
@@ -45,6 +44,8 @@ var _jetting := false
 # barra avanza mientras se siga apuntando al mismo.
 var _mining := false
 var _mine_target: Object
+# true una vez avisado de que la mochila está llena, hasta soltar el ratón.
+var _full_warned := false
 # Linterna en el casco: se ve solo con Game.flashlight_on.
 var _flashlight: SpotLight3D
 
@@ -103,13 +104,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		camera.rotate_x(-event.relative.y * MOUSE_SENSITIVITY)
 		camera.rotation.x = clampf(camera.rotation.x, -1.4, 1.4)
 	elif rover:
-		# Conduciendo solo se puede bajar, beber oxígeno y comer.
+		# Conduciendo solo se puede bajar (el inventario lo abre el HUD con I).
 		if event.is_action_pressed("interact"):
 			get_out()
-		elif event.is_action_pressed("use_bottle"):
-			Game.use_bottle()
-		elif event.is_action_pressed("eat"):
-			Game.eat()
 		elif event is InputEventMouseButton and event.pressed and not captured:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
@@ -142,10 +139,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			target.open_crate()
 	elif event.is_action_pressed("flashlight"):
 		Game.toggle_flashlight()
-	elif event.is_action_pressed("use_bottle"):
-		Game.use_bottle()
-	elif event.is_action_pressed("eat"):
-		Game.eat()
 
 
 func _physics_process(delta: float) -> void:
@@ -170,7 +163,7 @@ func _physics_process(delta: float) -> void:
 
 	var direction := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
 	# Con el agua por encima de las rodillas se anda más despacio.
-	var speed := SPEED * (WADE_FACTOR if world.water_depth(global_position) > WADE_DEPTH else 1.0)
+	var speed := SPEED * (WADE_FACTOR if world.water_depth(global_position) > Game.WADE_DEPTH else 1.0)
 	if _jetting:
 		speed *= JET_SPEED_FACTOR
 	if direction != Vector3.ZERO:
@@ -223,6 +216,7 @@ func _update_mining(delta: float) -> void:
 		_mining = false
 	if not _mining or target == null or not target.has_method("harvest"):
 		_mine_target = null
+		_full_warned = false
 		Game.mine_progress = -1.0
 		return
 	if target != _mine_target:
@@ -235,17 +229,26 @@ func _update_mining(delta: float) -> void:
 	if Game.drill_level < target.required_drill():
 		Game.mine_progress = -1.0
 		return
+	# Con la mochila llena la barra no avanza.
+	if Game.room_for(target.resource_type) <= 0:
+		if not _full_warned:
+			_full_warned = true
+			Game.message.emit(Game.FULL_MESSAGE)
+		Game.mine_progress = 0.0
+		return
+	_full_warned = false
 	var drill := Game.drill()
 	Game.mine_progress += delta / float(drill["time"])
 	if Game.mine_progress < 1.0:
 		return
 	Game.mine_progress = 0.0
-	var amount: int = target.harvest(int(drill["yield"]))
+	# Lo que no cabe se queda en el depósito.
+	var amount: int = target.harvest(int(drill["yield"]), Game.room_for(target.resource_type))
 	if amount > 0:
 		Sfx.play("recoger", 0.05)
 		Game.tool_used.emit(ray.get_collision_point())
 		Game.add_item(target.resource_type, amount)
-		Game.message.emit("+%d %s" % [amount, Game.RESOURCE_NAMES[target.resource_type]])
+		Game.message.emit("+%d %s (%d / %d casillas)" % [amount, Game.RESOURCE_NAMES[target.resource_type], Game.slots_used(), Game.slots_max()])
 
 
 ## Los propulsores empujan mientras se mantiene Espacio en el aire y se

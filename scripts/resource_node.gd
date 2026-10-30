@@ -41,13 +41,15 @@ func required_drill() -> int:
 
 
 ## Vacía el depósito entero cuando se llena la barra de minar; el taladro
-## multiplica lo recogido.
-func harvest(multiplier: int) -> int:
+## multiplica lo recogido. Si en la mochila solo caben "room" unidades, el
+## resto se queda en el depósito.
+func harvest(multiplier: int, room := 1 << 30) -> int:
 	if amount <= 0:
 		return 0
-	var taken := amount * multiplier
-	amount = 0
-	_deplete()
+	var taken := mini(amount * multiplier, room)
+	amount -= ceili(taken / float(multiplier))
+	if amount <= 0:
+		_deplete()
 	return taken
 
 
