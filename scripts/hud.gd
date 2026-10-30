@@ -97,7 +97,7 @@ func _ready() -> void:
 	help.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	help.offset_left = 16
 	help.offset_bottom = -16
-	help.text = "WASD mover · Espacio saltar · Clic usar herramienta (mantén para minar) · 1 2 3 o rueda cambiar modo\nTab fabricar y construir · E abrir taquilla o subir al róver · Q usar botella · F comer · R girar · H menú · Esc soltar ratón"
+	help.text = "WASD mover · Espacio saltar · Clic usar herramienta (mantén para minar) · 1 2 3 o rueda cambiar modo\nTab fabricar y construir · E abrir taquilla o subir al róver · Q usar botella · F comer · R girar · Esc cerrar o pausa"
 
 	_build_mode_bar()
 
@@ -172,7 +172,7 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif _open_panel:
 		var right_click: bool = event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT
-		if event.is_action_pressed("craft") or event.is_action_pressed("release_mouse") \
+		if event.is_action_pressed("craft") or event.is_action_pressed("pause") \
 				or (event.is_action_pressed("interact") and _open_panel == locker_panel) or right_click:
 			_close_panel()
 			get_viewport().set_input_as_handled()
