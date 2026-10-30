@@ -76,9 +76,9 @@ func _ready() -> void:
 	rng.seed = 42
 	deco_rng.seed = 99
 	var loaded := Game.load_game()
-	# Una partida nueva sortea su mapa; las de antes siguen con el de siempre.
+	# El mapa es siempre el mismo (semilla 0); la semilla queda por si algún día cambia.
 	if Game.world_seed < 0:
-		Game.world_seed = randi_range(1, 99999)
+		Game.world_seed = 0
 	_setup_gradients()
 	_build_environment()
 	_build_water()
