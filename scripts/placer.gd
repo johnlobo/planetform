@@ -191,6 +191,9 @@ func _place_machine(point: Vector3, hit: Dictionary) -> String:
 		return "va dentro de la base"
 	if Game.MACHINES.get(_kind, {}).get("produces", "") == "deposit" and deposit == null:
 		return "apunta a un depósito de recursos"
+	var allowed: Array = Game.MACHINES.get(_kind, {}).get("deposits", [])
+	if deposit and not allowed.is_empty() and not _deposit_type in allowed:
+		return "no saca %s" % String(Game.RESOURCE_NAMES[_deposit_type]).to_lower()
 	var common := _check_area(point)
 	if common != "":
 		return common

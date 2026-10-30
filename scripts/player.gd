@@ -45,6 +45,8 @@ var _jetting := false
 # barra avanza mientras se siga apuntando al mismo.
 var _mining := false
 var _mine_target: Object
+# Linterna en el casco: se ve solo con Game.flashlight_on.
+var _flashlight: SpotLight3D
 
 
 func _ready() -> void:
@@ -75,6 +77,15 @@ func _ready() -> void:
 	tool = Tool.new()
 	tool.player = self
 	camera.add_child(tool)
+
+	_flashlight = SpotLight3D.new()
+	_flashlight.spot_range = 28.0
+	_flashlight.spot_angle = 28.0
+	_flashlight.light_energy = 2.5
+	_flashlight.light_color = Color(1.0, 0.95, 0.85)
+	_flashlight.position = Vector3(0.15, 0.05, 0.0)
+	_flashlight.visible = false
+	camera.add_child(_flashlight)
 
 	spawn_point = global_position
 	Game.player_respawned.connect(_on_respawned)
@@ -127,6 +138,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			Game.locker_requested.emit(target)
 		elif target is Machine and target.is_usable():
 			target.use()
+		elif target and target.has_method("open_crate"):
+			target.open_crate()
+	elif event.is_action_pressed("flashlight"):
+		Game.toggle_flashlight()
 	elif event.is_action_pressed("use_bottle"):
 		Game.use_bottle()
 	elif event.is_action_pressed("eat"):
@@ -134,6 +149,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	_flashlight.visible = Game.flashlight_on and Game.has_flashlight
 	if rover:
 		_ride()
 		return
@@ -212,6 +228,13 @@ func _update_mining(delta: float) -> void:
 	if target != _mine_target:
 		_mine_target = target
 		Game.mine_progress = 0.0
+		if Game.drill_level < target.required_drill():
+			Game.message.emit("Para el %s necesitas el %s." % [
+				String(Game.RESOURCE_NAMES[target.resource_type]).to_lower(),
+				String(Game.DRILLS[target.required_drill()]["name"]).to_lower()])
+	if Game.drill_level < target.required_drill():
+		Game.mine_progress = -1.0
+		return
 	var drill := Game.drill()
 	Game.mine_progress += delta / float(drill["time"])
 	if Game.mine_progress < 1.0:
@@ -285,6 +308,15 @@ func get_out() -> void:
 	tool.visible = true
 	Game.hint = ""
 	Sfx.play("clic")
+
+
+## Lleva al jugador a otro sitio del mapa (telepuerto) y prepara ya el
+## terreno de allí para que no caiga a través del suelo.
+func teleport_to(pos: Vector3) -> void:
+	get_out()
+	global_position = pos
+	velocity = Vector3.ZERO
+	world.land.load_around(pos)
 
 
 ## Donde se guarda al jugador: si conduce, junto al róver.
@@ -365,6 +397,8 @@ func _interact() -> void:
 				Game.locker_requested.emit(target)
 			elif target is Machine and target.is_usable():
 				target.use()
+			elif target and target.has_method("open_crate"):
+				target.open_crate()
 			elif target and target.has_method("harvest"):
 				_mining = true # sigue en _update_mining mientras no se suelte
 

@@ -174,6 +174,33 @@ func _item(kind: String) -> Node3D:
 			for i in 4:
 				var angle := i * TAU / 4.0 + 0.4
 				_part(root, _sphere(0.1, 5), veg if i % 2 == 0 else carrot, Vector3(cos(angle) * 0.28, 0.22, sin(angle) * 0.28))
+		"linterna":
+			var body := _part(root, _cylinder(0.16, 0.16, 0.8, 8), dark, Vector3.ZERO)
+			body.rotation_degrees.z = 90.0
+			var head := _part(root, _cylinder(0.32, 0.18, 0.3, 8), metal, Vector3(-0.5, 0, 0))
+			head.rotation_degrees.z = 90.0
+			var lens := _material(Color(1.0, 0.95, 0.7), 0.0)
+			lens.emission_enabled = true
+			lens.emission = Color(1.0, 0.9, 0.5)
+			var glass := _part(root, _cylinder(0.3, 0.3, 0.04, 8), lens, Vector3(-0.66, 0, 0))
+			glass.rotation_degrees.z = 90.0
+			_part(root, _box(Vector3(0.18, 0.08, 0.12)), _material(Color(0.95, 0.55, 0.15), 0.1), Vector3(0.1, 0.17, 0))
+		"placa":
+			var alloy := _material(Color(0.8, 0.82, 0.88), 0.8)
+			for i in 3:
+				var plate := _part(root, _box(Vector3(1.0, 0.1, 0.7)), alloy, Vector3(0.05 * i, 0.12 * i, -0.04 * i))
+				plate.rotation_degrees.y = 8.0 * i
+			_part(root, _box(Vector3(0.6, 0.02, 0.1)), _material(Color(0.3, 0.55, 0.95), 0.2), Vector3(0.1, 0.31, -0.08))
+		"circuito":
+			_part(root, _box(Vector3(1.0, 0.08, 0.8)), _material(Color(0.15, 0.5, 0.3), 0.1), Vector3.ZERO)
+			_part(root, _box(Vector3(0.35, 0.1, 0.35)), dark, Vector3(0, 0.08, 0))
+			var gold := _material(Color(0.95, 0.75, 0.3), 0.8)
+			for i in 4:
+				_part(root, _box(Vector3(0.04, 0.02, 0.6)), gold, Vector3(-0.38 + i * 0.25, 0.05, 0))
+			var quartz := _material(Color(0.95, 0.6, 0.9), 0.0)
+			quartz.emission_enabled = true
+			quartz.emission = Color(0.6, 0.2, 0.55)
+			_part(root, _box(Vector3(0.12, 0.12, 0.12)), quartz, Vector3(0.3, 0.1, 0.25))
 		_:
 			_part(root, _box(Vector3.ONE * 0.6), metal, Vector3.ZERO)
 	return root

@@ -23,7 +23,8 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 | Clic izquierdo | Usar la herramienta (y capturar el ratón) |
 | 1 / 2 / 3 o rueda del ratón | Cambiar el modo de la herramienta: recoger, construir o desmontar |
 | Tab o C | Abrir y cerrar el menú de fabricar y construir (vuelve a la última pestaña usada) |
-| E | Abrir la taquilla, la bomba de agua, el bancal, el extractor o la estación de drones que miras; dormir en la cama; subir al róver y bajar de él |
+| E | Abrir la taquilla, la bomba de agua, el bancal, el extractor o la estación de drones que miras; dormir en la cama; usar el terminal o el telepuerto; abrir una caja de suministros; subir al róver y bajar de él |
+| L | Encender y apagar la linterna |
 | W S / A D (en el róver) | Acelerar y frenar o marcha atrás / girar; Espacio es el freno |
 | Q | Usar una botella de oxígeno |
 | F | Comer (verduras, raciones o guiso) |
@@ -33,7 +34,26 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 
 ## Cómo se juega
 
-- **Fabricar y construir** comparten un menú con dos pestañas y un icono por receta. En **Fabricar** están las herramientas, las botellas, las semillas y el guiso: van al inventario y el menú sigue abierto para hacer más. En **Construir** está lo que se coloca en el mundo: al elegirlo, la herramienta pasa a modo construir y empieza la colocación. Lo que aún no se ha desbloqueado sale oscuro con el nombre de su etapa.
+- **Fabricar y construir** comparten un menú: una sola lista con cuatro secciones separadas por un título, un icono por receta y la rueda para bajar si no cabe. En **Fabricar** están las herramientas, las botellas, las semillas, el guiso y los componentes: van al inventario y el menú sigue abierto para hacer más. Lo que se coloca en el mundo está repartido en **Construcción** (base, muebles, pantallas), **Tecnología** (energía, vehículos, automatización) y **Terraformación** (lo que sube las métricas del planeta): al elegirlo, la herramienta pasa a modo construir y empieza la colocación. Tab abre el menú arriba; el modo construir, en Construcción. Solo sale lo desbloqueado; lo demás no se enseña.
+
+- **Materiales avanzados y sitios recónditos** (a partir de 250 m de la base):
+  - **Cuevas** (48 en el mapa, en laderas de montaña): una sala de roca gruesa metida en la montaña, con un túnel de entrada de roca maciza. La entrada mira siempre cuesta abajo y se llega por una rampa; desde arriba o de lado solo se ven las rocas de la loma, así que hay que rodearla hasta encontrar la entrada. Dentro no llueve y está oscuro (fabrica la **linterna**, L). Tienen **titanio** en las paredes, **cuarzo** rosa al fondo y, en la mitad, una caja de suministros.
+  - **Restos de naves** (18, desde 300 m): cada uno con una caja de suministros.
+  - **Cráteres** (14, desde 600 m): el terreno se hunde 6 m hacia el centro, con el borde levantado y rocas alrededor, y un meteorito de **iridio** en el fondo.
+  - El titanio y el cuarzo piden el taladro mejorado; el iridio, el térmico. Tardan 5 minutos en reaparecer.
+  - Con titanio se fabrica la **placa de aleación** (2 titanio + 1 hierro) y con cuarzo el **circuito** (1 cuarzo + 1 cobre + 1 silicio); aparecen en Fabricar al recoger el material por primera vez.
+- **Desbloqueos.** Cada caja de suministros se abre una vez y da un **chip de datos** o un **fragmento de plano**. Las tecnologías avanzadas se desbloquean así:
+
+  | Tecnología | Pestaña | Qué hace | Coste | Se desbloquea con |
+  |---|---|---|---|---|
+  | Generador geotérmico | Tecnología | +6 de energía, de día y de noche | 4 hierro, 2 placas, 2 circuitos | 2 chips (terminal) |
+  | Telepuerto | Tecnología | E para ir al siguiente telepuerto (gasta 1 de energía) | 3 placas, 3 circuitos, 2 iridio | 3 fragmentos |
+  | Extractor de titanio | Tecnología | Saca titanio de un depósito de una cueva | 3 placas, 2 circuitos | 4 chips (terminal) |
+  | Liberador de gases de efecto invernadero | Terraformación | Temperatura x6, gasta 3 de energía | 3 placas, 2 circuitos | Índice 35 % |
+  | Torre atmosférica | Terraformación | Presión x6, gasta 3 de energía | 4 placas, 2 circuitos, 1 iridio | 3 fragmentos |
+  | Árbol modificado | Terraformación | Biomasa x5 y oxígeno x2, sin energía | 2 semillas, 2 agua, 1 circuito | Lluvias y 3 chips (terminal) |
+
+  Los chips se gastan en el **terminal de investigación** (Construcción): E sobre él para ver qué se puede investigar. Los planos a medias salen arriba a la derecha. El extractor automático normal no saca materiales avanzados.
 
 - La **herramienta** de la mano tiene tres modos y su cabezal cambia con cada uno:
   - **Recoger** (taladro): mantén pulsado el clic sobre un recurso hasta que se llene la barra bajo la mira y lo recoges entero

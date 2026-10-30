@@ -28,6 +28,8 @@ var _charge_light: StandardMaterial3D
 var _fruits: Array[Node3D] = []
 # Las plantas nacen pequeñas y crecen hasta su tamaño en su "grow_time".
 var _growth := 1.0
+# Tamaño de la pieza ya crecida (el árbol modificado es más grande).
+var _size := 1.0
 # Insectos del criadero: revolotean alrededor de las flores.
 var _insects: Array[Node3D] = []
 # Batería: barra que marca la carga.
@@ -470,8 +472,9 @@ func setup(machine_kind: String) -> void:
 				leg.size = Vector3(0.06, 1.3, 0.06)
 				_mesh(leg, Vector3(sx, 0.85, 0.3), material)
 				_mesh(leg, Vector3(sx, 0.85, -0.3), material)
-		"arbol":
-			# Pino low poly: tronco y tres conos apilados.
+		"arbol", "arbol_modificado":
+			# Pino low poly: tronco y tres conos apilados. El modificado es más
+			# grande, azulado y con frutos que brillan.
 			var trunk := CylinderMesh.new()
 			trunk.top_radius = 0.1
 			trunk.bottom_radius = 0.16
@@ -492,6 +495,17 @@ func setup(machine_kind: String) -> void:
 				cone.radial_segments = 7
 				cone.rings = 1
 				_mesh(cone, Vector3(0, 1.5 + k * 0.65, 0), leaves)
+			if kind == "arbol_modificado":
+				_size = 1.4
+				scale = Vector3.ONE * _size
+				leaves.albedo_color = Color(0.2, 0.55, 0.5)
+				var fruit := StandardMaterial3D.new()
+				fruit.albedo_color = Color(0.6, 0.9, 1.0)
+				fruit.emission_enabled = true
+				fruit.emission = Color(0.2, 0.6, 0.8)
+				for k in 5:
+					var angle := k * TAU / 5.0
+					_detail(Vector3(0.14, 0.14, 0.14), Vector3(cos(angle) * 0.55, 1.7 + (k % 2) * 0.6, sin(angle) * 0.55), fruit)
 		"insectos":
 			# Colmena de madera sobre patas con flores alrededor.
 			var hive := BoxMesh.new()
@@ -525,8 +539,9 @@ func setup(machine_kind: String) -> void:
 				var insect := _detail(Vector3(0.07, 0.05, 0.07), Vector3(0, 1.0, 0), bug)
 				insect.set_meta("phase", i * 1.7)
 				_insects.append(insect)
-		"extractor":
-			# Torre de cuatro patas sobre el depósito con una broca que gira.
+		"extractor", "extractor_titanio":
+			# Torre de cuatro patas sobre el depósito con una broca que gira. La
+			# de titanio, plateada con detalles azules.
 			var housing := BoxMesh.new()
 			housing.size = Vector3(1.2, 0.6, 1.2)
 			mesh_instance.mesh = housing
@@ -535,7 +550,10 @@ func setup(machine_kind: String) -> void:
 			material.metallic = 0.3
 			shape.size = Vector3(1.8, 2.3, 1.8)
 			var frame := StandardMaterial3D.new()
-			frame.albedo_color = Color(0.95, 0.55, 0.15)
+			frame.albedo_color = Color(0.95, 0.55, 0.15) if kind == "extractor" else Color(0.3, 0.55, 0.95)
+			if kind == "extractor_titanio":
+				material.albedo_color = Color(0.8, 0.82, 0.88)
+				material.metallic = 0.7
 			for corner in [Vector3(-1, 0, -1), Vector3(1, 0, -1), Vector3(-1, 0, 1), Vector3(1, 0, 1)]:
 				_detail(Vector3(0.12, 2.0, 0.12), Vector3(corner.x * 0.75, 1.0, corner.z * 0.75), frame)
 				_detail(Vector3(0.3, 0.08, 0.3), Vector3(corner.x * 0.75, 0.04, corner.z * 0.75), frame)
@@ -636,6 +654,159 @@ func setup(machine_kind: String) -> void:
 			_lamp.light_energy = 1.4
 			_lamp.light_color = Color(1.0, 0.9, 0.7)
 			add_child(_lamp)
+		"terminal":
+			# Consola con pantalla inclinada y una ranura para los chips.
+			var desk := BoxMesh.new()
+			desk.size = Vector3(1.2, 1.0, 0.7)
+			mesh_instance.mesh = desk
+			mesh_instance.position.y = 0.5
+			material.albedo_color = Color(0.3, 0.33, 0.37)
+			material.metallic = 0.3
+			shape.size = Vector3(1.2, 1.7, 0.7)
+			var screen := StandardMaterial3D.new()
+			screen.albedo_color = Color(0.3, 0.9, 1.0)
+			screen.emission_enabled = true
+			screen.emission = Color(0.1, 0.6, 0.8)
+			var frame := _detail(Vector3(1.1, 0.7, 0.08), Vector3(0, 1.35, 0.1), material)
+			frame.rotation_degrees.x = 15.0
+			var glass := _detail(Vector3(0.95, 0.55, 0.02), Vector3(0, 1.35, 0.05), screen)
+			glass.rotation_degrees.x = 15.0
+			var accent := StandardMaterial3D.new()
+			accent.albedo_color = Color(0.95, 0.55, 0.15)
+			_detail(Vector3(1.22, 0.08, 0.72), Vector3(0, 0.95, 0), accent)
+			_detail(Vector3(0.3, 0.04, 0.12), Vector3(0.35, 1.0, -0.2), screen)
+		"geotermico":
+			# Torre ancha sobre una grieta roja, con tubos y una chimenea de vapor.
+			var tower := CylinderMesh.new()
+			tower.top_radius = 0.8
+			tower.bottom_radius = 1.1
+			tower.height = 2.4
+			tower.radial_segments = 8
+			mesh_instance.mesh = tower
+			mesh_instance.position.y = 1.2
+			material.albedo_color = Color(0.5, 0.52, 0.56)
+			material.metallic = 0.4
+			shape.size = Vector3(2.4, 3.2, 2.4)
+			var lava := StandardMaterial3D.new()
+			lava.albedo_color = Color(1.0, 0.35, 0.1)
+			lava.emission_enabled = true
+			lava.emission = Color(1.0, 0.3, 0.05)
+			_detail(Vector3(2.4, 0.06, 0.25), Vector3(0, 0.03, 0), lava)
+			_detail(Vector3(0.25, 0.06, 2.4), Vector3(0, 0.03, 0), lava)
+			var band := StandardMaterial3D.new()
+			band.albedo_color = Color(0.3, 0.55, 0.95)
+			var ring := CylinderMesh.new()
+			ring.top_radius = 0.95
+			ring.bottom_radius = 0.95
+			ring.height = 0.2
+			ring.radial_segments = 8
+			_mesh(ring, Vector3(0, 1.6, 0), band)
+			var chimney := CylinderMesh.new()
+			chimney.top_radius = 0.3
+			chimney.bottom_radius = 0.4
+			chimney.height = 0.8
+			chimney.radial_segments = 6
+			_mesh(chimney, Vector3(0, 2.8, 0), material)
+			for sx in [-1.0, 1.0]:
+				var pipe := CylinderMesh.new()
+				pipe.top_radius = 0.12
+				pipe.bottom_radius = 0.12
+				pipe.height = 2.0
+				pipe.radial_segments = 6
+				_mesh(pipe, Vector3(sx * 1.05, 1.0, 0.0), band)
+		"telepuerto":
+			# Plataforma redonda con tres columnas y un anillo de luz encima.
+			var pad := CylinderMesh.new()
+			pad.top_radius = 1.2
+			pad.bottom_radius = 1.35
+			pad.height = 0.3
+			pad.radial_segments = 10
+			mesh_instance.mesh = pad
+			mesh_instance.position.y = 0.15
+			material.albedo_color = Color(0.35, 0.37, 0.42)
+			material.metallic = 0.5
+			shape.size = Vector3(2.4, 0.3, 2.4)
+			var glow := StandardMaterial3D.new()
+			glow.albedo_color = Color(0.7, 0.5, 1.0)
+			glow.emission_enabled = true
+			glow.emission = Color(0.5, 0.3, 1.0)
+			_charge_light = glow
+			var disc := CylinderMesh.new()
+			disc.top_radius = 0.9
+			disc.bottom_radius = 0.9
+			disc.height = 0.04
+			disc.radial_segments = 10
+			_mesh(disc, Vector3(0, 0.32, 0), glow)
+			for k in 3:
+				var angle := k * TAU / 3.0
+				_detail(Vector3(0.18, 2.4, 0.18), Vector3(cos(angle) * 1.1, 1.4, sin(angle) * 1.1), material)
+			var halo := TorusMesh.new()
+			halo.inner_radius = 0.95
+			halo.outer_radius = 1.15
+			halo.rings = 12
+			halo.ring_segments = 4
+			_mesh(halo, Vector3(0, 2.6, 0), glow)
+		"liberador":
+			# Tanques verticales de gas naranja y una chimenea que lo suelta.
+			var base := BoxMesh.new()
+			base.size = Vector3(2.4, 0.4, 1.6)
+			mesh_instance.mesh = base
+			mesh_instance.position.y = 0.2
+			material.albedo_color = Color(0.4, 0.42, 0.46)
+			shape.size = Vector3(2.4, 3.6, 1.6)
+			var gas := StandardMaterial3D.new()
+			gas.albedo_color = Color(1.0, 0.6, 0.25)
+			gas.metallic = 0.3
+			gas.roughness = 0.4
+			for sx in [-0.7, 0.0, 0.7]:
+				var tank := CapsuleMesh.new()
+				tank.radius = 0.32
+				tank.height = 1.8
+				tank.radial_segments = 8
+				tank.rings = 2
+				_mesh(tank, Vector3(sx, 1.3, -0.3), gas)
+			var stack := CylinderMesh.new()
+			stack.top_radius = 0.25
+			stack.bottom_radius = 0.35
+			stack.height = 3.2
+			stack.radial_segments = 6
+			_mesh(stack, Vector3(0.6, 1.9, 0.45), material)
+			var hot := StandardMaterial3D.new()
+			hot.albedo_color = Color(1.0, 0.45, 0.15)
+			hot.emission_enabled = true
+			hot.emission = Color(0.9, 0.35, 0.05)
+			_charge_light = hot
+			_detail(Vector3(0.4, 0.1, 0.4), Vector3(0.6, 3.5, 0.45), hot)
+		"torre":
+			# Torre alta con aletas que giran arriba y bocas de gas violeta.
+			var column := CylinderMesh.new()
+			column.top_radius = 0.35
+			column.bottom_radius = 0.8
+			column.height = 5.0
+			column.radial_segments = 8
+			mesh_instance.mesh = column
+			mesh_instance.position.y = 2.5
+			material.albedo_color = Color(0.82, 0.84, 0.88)
+			material.metallic = 0.4
+			shape.size = Vector3(1.8, 5.6, 1.8)
+			var gas := StandardMaterial3D.new()
+			gas.albedo_color = Color(0.75, 0.6, 1.0)
+			gas.emission_enabled = true
+			gas.emission = Color(0.45, 0.3, 0.8)
+			_charge_light = gas
+			for k in 4:
+				var angle := k * TAU / 4.0
+				var fin := _detail(Vector3(0.1, 1.6, 0.6), Vector3(cos(angle) * 0.75, 0.8, sin(angle) * 0.75), material)
+				fin.rotation.y = -angle
+				_detail(Vector3(0.2, 0.2, 0.2), Vector3(cos(angle) * 0.55, 2.0, sin(angle) * 0.55), gas)
+			_rotor = Node3D.new()
+			_rotor.position.y = 5.1
+			add_child(_rotor)
+			for k in 3:
+				var blade := BoxMesh.new()
+				blade.size = Vector3(1.6, 0.05, 0.25)
+				var part := _mesh(blade, Vector3.ZERO, gas, _rotor)
+				part.rotation_degrees = Vector3(10.0, k * 60.0, 0)
 	mesh_instance.material_override = material
 	add_child(mesh_instance)
 	var collision := CollisionShape3D.new()
@@ -821,7 +992,7 @@ static func _moss_mesh() -> Mesh:
 func sprout() -> void:
 	if Game.MACHINES[kind].has("grow_time"):
 		_growth = 0.0
-		scale = Vector3.ONE * 0.3
+		scale = Vector3.ONE * 0.3 * _size
 
 
 func is_storage() -> bool:
@@ -889,7 +1060,7 @@ func _process(delta: float) -> void:
 			update_screen()
 	if _growth < 1.0:
 		_growth = minf(1.0, _growth + delta / float(Game.MACHINES[kind]["grow_time"]))
-		scale = Vector3.ONE * lerpf(0.3, 1.0, _growth)
+		scale = Vector3.ONE * lerpf(0.3, 1.0, _growth) * _size
 	if Game.MACHINES[kind].has("produces"):
 		_produce(delta)
 	if not _insects.is_empty():
@@ -939,19 +1110,51 @@ func produced_resource() -> String:
 	return resource
 
 
-## La cama se usa con E o con clic.
+## La cama, el terminal y el telepuerto se usan con E o con clic.
 func is_usable() -> bool:
-	return Game.MACHINES[kind].get("bed", false)
+	var machine: Dictionary = Game.MACHINES[kind]
+	return machine.get("bed", false) or machine.get("research", false) or machine.get("teleport", false)
 
 
 func use() -> void:
-	Game.sleep(data)
+	if Game.MACHINES[kind].get("research", false):
+		Game.research_requested.emit()
+	elif Game.MACHINES[kind].get("teleport", false):
+		_teleport()
+	else:
+		Game.sleep(data)
+
+
+## Lleva al jugador al siguiente telepuerto de la lista, dando la vuelta.
+func _teleport() -> void:
+	var pads := []
+	for m in Game.machines:
+		if Game.MACHINES[String(m["kind"])].get("teleport", false):
+			pads.append(m)
+	if pads.size() < 2:
+		Game.message.emit("Construye otro telepuerto para viajar entre los dos.")
+		return
+	if Game.energy_ratio() <= 0.0:
+		Game.message.emit("El telepuerto no tiene energía.")
+		return
+	var index := 0
+	for i in pads.size():
+		if is_same(pads[i], data):
+			index = i
+	var target: Dictionary = pads[(index + 1) % pads.size()]
+	var pos := Vector3(float(target["x"]), float(target["y"]), float(target["z"]))
+	Sfx.play("etapa")
+	get_tree().get_first_node_in_group("player").teleport_to(pos + Vector3(0, 0.4, 0))
 
 
 func get_hint() -> String:
 	var recipe_name: String = Game.RECIPES[kind]["name"]
 	if kind == "extractor":
 		recipe_name = "Extractor de %s" % String(Game.RESOURCE_NAMES[produced_resource()]).to_lower()
+	if Game.MACHINES[kind].get("research", false):
+		return "%s · %d chips · E o clic para investigar" % [recipe_name, int(Game.inventory.get("chip", 0))]
+	if Game.MACHINES[kind].get("teleport", false):
+		return "%s · E o clic para viajar al siguiente telepuerto" % recipe_name
 	if is_usable():
 		return "%s · E o clic para dormir%s" % [recipe_name, "" if Game.is_night() else " (solo de noche)"]
 	if kind == "bateria":
