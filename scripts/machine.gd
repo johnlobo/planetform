@@ -30,6 +30,12 @@ var _fruits: Array[Node3D] = []
 var _growth := 1.0
 # Insectos del criadero: revolotean alrededor de las flores.
 var _insects: Array[Node3D] = []
+# Batería: barra que marca la carga.
+var _battery_bar: Node3D
+var _battery_material: StandardMaterial3D
+# Farola: la luz y la lámpara, encendidas solo de noche.
+var _lamp: OmniLight3D
+var _lamp_material: StandardMaterial3D
 # Agua que se ve dentro del colector, más alta cuanto más lleno.
 var _collected: Node3D
 # Pantallas: barras que se rellenan, [{"metric", "fill", "left", "width"}]
@@ -56,13 +62,32 @@ func setup(machine_kind: String) -> void:
 	var shape := BoxShape3D.new()
 	match kind:
 		"panel":
+			# Placa inclinada sobre un soporte: un poste con dos patas y una losa.
 			var box := BoxMesh.new()
-			box.size = Vector3(2.0, 0.1, 1.4)
+			box.size = Vector3(2.0, 0.08, 1.4)
 			mesh_instance.mesh = box
-			mesh_instance.position.y = 0.8
+			mesh_instance.position.y = 1.35
 			mesh_instance.rotation_degrees.x = -25.0
 			material.albedo_color = Color(0.15, 0.25, 0.6)
-			shape.size = Vector3(2.0, 1.2, 1.4)
+			material.metallic = 0.3
+			material.roughness = 0.35
+			shape.size = Vector3(2.0, 1.8, 1.4)
+			var steel := StandardMaterial3D.new()
+			steel.albedo_color = Color(0.6, 0.63, 0.66)
+			steel.metallic = 0.5
+			_detail(Vector3(0.9, 0.08, 0.6), Vector3(0, 0.04, 0), steel)
+			_detail(Vector3(0.12, 1.3, 0.12), Vector3(0, 0.68, 0), steel)
+			for sx in [-0.5, 0.5]:
+				var strut := _detail(Vector3(0.06, 0.9, 0.06), Vector3(sx * 0.35, 0.5, 0), steel)
+				strut.rotation_degrees.z = sx * 50.0
+			# Marco bajo la placa, girado con ella.
+			var frame := _detail(Vector3(2.04, 0.05, 1.44), Vector3(0, 1.3, 0.02), steel)
+			frame.rotation_degrees.x = -25.0
+			var lines := StandardMaterial3D.new()
+			lines.albedo_color = Color(0.5, 0.6, 0.8)
+			for k in [-0.5, 0.0, 0.5]:
+				var line := _detail(Vector3(0.02, 0.09, 1.4), Vector3(k, 1.35, 0), lines)
+				line.rotation_degrees.x = -25.0
 		"generador":
 			var cylinder := CylinderMesh.new()
 			cylinder.top_radius = 0.5
@@ -500,6 +525,117 @@ func setup(machine_kind: String) -> void:
 				var insect := _detail(Vector3(0.07, 0.05, 0.07), Vector3(0, 1.0, 0), bug)
 				insect.set_meta("phase", i * 1.7)
 				_insects.append(insect)
+		"extractor":
+			# Torre de cuatro patas sobre el depósito con una broca que gira.
+			var housing := BoxMesh.new()
+			housing.size = Vector3(1.2, 0.6, 1.2)
+			mesh_instance.mesh = housing
+			mesh_instance.position.y = 2.0
+			material.albedo_color = Color(0.55, 0.6, 0.66)
+			material.metallic = 0.3
+			shape.size = Vector3(1.8, 2.3, 1.8)
+			var frame := StandardMaterial3D.new()
+			frame.albedo_color = Color(0.95, 0.55, 0.15)
+			for corner in [Vector3(-1, 0, -1), Vector3(1, 0, -1), Vector3(-1, 0, 1), Vector3(1, 0, 1)]:
+				_detail(Vector3(0.12, 2.0, 0.12), Vector3(corner.x * 0.75, 1.0, corner.z * 0.75), frame)
+				_detail(Vector3(0.3, 0.08, 0.3), Vector3(corner.x * 0.75, 0.04, corner.z * 0.75), frame)
+			var dark := StandardMaterial3D.new()
+			dark.albedo_color = Color(0.3, 0.33, 0.37)
+			_detail(Vector3(1.6, 0.08, 0.08), Vector3(0, 1.65, -0.75), dark)
+			_detail(Vector3(1.6, 0.08, 0.08), Vector3(0, 1.65, 0.75), dark)
+			# Depósito pequeño de lo extraído en un lado.
+			_detail(Vector3(0.5, 0.4, 0.5), Vector3(0.75, 2.5, 0), dark)
+			_rotor = Node3D.new()
+			_rotor.position.y = 1.7
+			add_child(_rotor)
+			var bit := CylinderMesh.new()
+			bit.top_radius = 0.14
+			bit.bottom_radius = 0.03
+			bit.height = 1.0
+			bit.radial_segments = 5
+			var steel := StandardMaterial3D.new()
+			steel.albedo_color = Color(0.7, 0.72, 0.75)
+			steel.metallic = 0.6
+			_mesh(bit, Vector3(0, -0.5, 0), steel, _rotor)
+			_charge_light = StandardMaterial3D.new()
+			_charge_light.albedo_color = Color(0.3, 1.0, 0.45)
+			_charge_light.emission_enabled = true
+			_charge_light.emission = Color(0.15, 0.8, 0.3)
+			_detail(Vector3(0.3, 0.08, 0.02), Vector3(0, 2.1, -0.61), _charge_light)
+		"bateria":
+			# Armario bajo con celdas a la vista y una barra que marca la carga.
+			var cabinet := BoxMesh.new()
+			cabinet.size = Vector3(1.4, 1.2, 0.8)
+			mesh_instance.mesh = cabinet
+			mesh_instance.position.y = 0.6
+			material.albedo_color = Color(0.3, 0.33, 0.37)
+			material.metallic = 0.3
+			shape.size = Vector3(1.4, 1.3, 0.8)
+			var cell := StandardMaterial3D.new()
+			cell.albedo_color = Color(0.85, 0.87, 0.9)
+			for i in 3:
+				var can := CylinderMesh.new()
+				can.top_radius = 0.16
+				can.bottom_radius = 0.16
+				can.height = 0.25
+				can.radial_segments = 8
+				_mesh(can, Vector3(-0.4 + i * 0.4, 1.32, 0), cell)
+			var accent := StandardMaterial3D.new()
+			accent.albedo_color = Color(0.95, 0.55, 0.15)
+			_detail(Vector3(1.42, 0.08, 0.82), Vector3(0, 0.1, 0), accent)
+			_detail(Vector3(1.1, 0.2, 0.02), Vector3(0, 0.75, -0.41), cell)
+			_battery_material = StandardMaterial3D.new()
+			_battery_material.albedo_color = Color(0.3, 1.0, 0.45)
+			_battery_material.emission_enabled = true
+			_battery_material.emission = Color(0.15, 0.8, 0.3)
+			_battery_bar = _detail(Vector3(1.0, 0.12, 0.02), Vector3(0, 0.75, -0.42), _battery_material)
+		"cama":
+			# Somier metálico, colchón, almohada y manta. La cabecera va detrás (+Z).
+			var base := BoxMesh.new()
+			base.size = Vector3(1.0, 0.35, 2.0)
+			mesh_instance.mesh = base
+			mesh_instance.position.y = 0.175
+			material.albedo_color = Color(0.55, 0.6, 0.66)
+			material.metallic = 0.3
+			shape.size = Vector3(1.0, 0.6, 2.0)
+			var mattress := StandardMaterial3D.new()
+			mattress.albedo_color = Color(0.9, 0.9, 0.86)
+			_detail(Vector3(0.94, 0.15, 1.94), Vector3(0, 0.42, 0), mattress)
+			_detail(Vector3(0.6, 0.1, 0.35), Vector3(0, 0.55, 0.7), mattress)
+			var blanket := StandardMaterial3D.new()
+			blanket.albedo_color = Color(0.2, 0.4, 0.7)
+			_detail(Vector3(0.98, 0.06, 1.2), Vector3(0, 0.51, -0.35), blanket)
+			var accent := StandardMaterial3D.new()
+			accent.albedo_color = Color(0.95, 0.55, 0.15)
+			_detail(Vector3(1.0, 0.6, 0.08), Vector3(0, 0.5, 0.98), accent)
+		"farola":
+			# Poste con una lámpara arriba y una placa solar pequeña.
+			var pole := CylinderMesh.new()
+			pole.top_radius = 0.05
+			pole.bottom_radius = 0.08
+			pole.height = 3.0
+			pole.radial_segments = 6
+			mesh_instance.mesh = pole
+			mesh_instance.position.y = 1.5
+			material.albedo_color = Color(0.3, 0.33, 0.37)
+			shape.size = Vector3(0.4, 3.2, 0.4)
+			_detail(Vector3(0.35, 0.1, 0.35), Vector3(0, 0.05, 0), material)
+			_detail(Vector3(0.7, 0.06, 0.08), Vector3(0, 3.0, -0.3), material)
+			_lamp_material = StandardMaterial3D.new()
+			_lamp_material.albedo_color = Color(1.0, 0.95, 0.8)
+			_lamp_material.emission_enabled = true
+			_lamp_material.emission = Color(1.0, 0.85, 0.55)
+			_detail(Vector3(0.4, 0.12, 0.3), Vector3(0, 2.92, -0.6), _lamp_material)
+			var solar := StandardMaterial3D.new()
+			solar.albedo_color = Color(0.15, 0.25, 0.6)
+			var panel := _detail(Vector3(0.5, 0.04, 0.4), Vector3(0, 3.25, 0.05), solar)
+			panel.rotation_degrees.x = -20.0
+			_lamp = OmniLight3D.new()
+			_lamp.position = Vector3(0, 2.7, -0.6)
+			_lamp.omni_range = 12.0
+			_lamp.light_energy = 1.4
+			_lamp.light_color = Color(1.0, 0.9, 0.7)
+			add_child(_lamp)
 	mesh_instance.material_override = material
 	add_child(mesh_instance)
 	var collision := CollisionShape3D.new()
@@ -738,6 +874,14 @@ func _process(delta: float) -> void:
 		_rotor.rotate_y(delta * 4.0 * Game.energy_ratio())
 	if _charge_light:
 		_charge_light.emission_energy_multiplier = 1.0 if Game.energy_ratio() > 0.0 else 0.1
+	if _battery_bar:
+		var charge := Game.battery_percent() / 100.0
+		_battery_bar.scale.x = maxf(0.02, charge)
+		_battery_bar.position.x = -0.5 * (1.0 - charge)
+	if _lamp:
+		var on := Game.is_night() and not data.is_empty()
+		_lamp.visible = on
+		_lamp_material.emission_energy_multiplier = 2.0 if on else 0.1
 	if _bars.size() > 0:
 		_screen_time -= delta
 		if _screen_time <= 0.0:
@@ -783,12 +927,37 @@ func _produce(delta: float) -> void:
 	var period := float(Game.MACHINES[kind]["produce_time"])
 	if _produce_time >= period:
 		_produce_time -= period
-		var resource := String(Game.MACHINES[kind]["produces"])
+		var resource := produced_resource()
 		items()[resource] = int(items().get(resource, 0)) + 1
+
+
+## Lo que saca: el extractor, lo del depósito sobre el que está.
+func produced_resource() -> String:
+	var resource := String(Game.MACHINES[kind]["produces"])
+	if resource == "deposit":
+		return String(data.get("resource", "hierro"))
+	return resource
+
+
+## La cama se usa con E o con clic.
+func is_usable() -> bool:
+	return Game.MACHINES[kind].get("bed", false)
+
+
+func use() -> void:
+	Game.sleep(data)
 
 
 func get_hint() -> String:
 	var recipe_name: String = Game.RECIPES[kind]["name"]
+	if kind == "extractor":
+		recipe_name = "Extractor de %s" % String(Game.RESOURCE_NAMES[produced_resource()]).to_lower()
+	if is_usable():
+		return "%s · E o clic para dormir%s" % [recipe_name, "" if Game.is_night() else " (solo de noche)"]
+	if kind == "bateria":
+		return "%s · carga %d %% · da hasta %d de energía" % [recipe_name, roundi(Game.battery_percent()), Game.BATTERY_POWER]
+	if kind == "farola":
+		return "%s · se enciende sola de noche" % recipe_name
 	if is_storage():
 		var state := ""
 		if Game.MACHINES[kind].get("rain", false):

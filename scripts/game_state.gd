@@ -61,9 +61,19 @@ const RECIPES := {
 	"insectos": {"name": "Criadero de insectos", "cost": {"hierro": 3, "cobre": 2, "verdura": 2}, "kind": "building", "stage": 3},
 	# Base: módulos que encajan entre sí y piezas para sus paredes.
 	"modulo": {"name": "Módulo de hábitat", "cost": {"hierro": 6, "silicio": 2}, "kind": "module", "stage": 0},
+	"pasillo": {"name": "Pasillo recto", "cost": {"hierro": 3, "silicio": 1}, "kind": "module", "stage": 0},
+	"pasillo_l": {"name": "Pasillo en L", "cost": {"hierro": 4, "silicio": 1}, "kind": "module", "stage": 0},
+	"pasillo_t": {"name": "Pasillo en T", "cost": {"hierro": 4, "silicio": 1}, "kind": "module", "stage": 0},
 	"puerta": {"name": "Puerta", "cost": {"hierro": 2}, "kind": "fitting", "stage": 0},
 	"ventana": {"name": "Ventana", "cost": {"hierro": 1, "silicio": 2}, "kind": "fitting", "stage": 0},
+	# Va en una esquina del módulo y abre una trampilla al techo o a la planta de arriba.
+	"escalera": {"name": "Escalera", "cost": {"hierro": 2}, "kind": "fitting", "stage": 0},
 	"taquilla": {"name": "Taquilla", "cost": {"hierro": 3}, "kind": "building", "stage": 0},
+	"cama": {"name": "Cama", "cost": {"hierro": 3}, "kind": "building", "stage": 0},
+	"farola": {"name": "Farola", "cost": {"hierro": 1, "silicio": 1}, "kind": "building", "stage": 0},
+	# Primera neblina: automatización y energía para la noche.
+	"extractor": {"name": "Extractor automático", "cost": {"hierro": 5, "silicio": 2}, "kind": "building", "stage": 1},
+	"bateria": {"name": "Batería", "cost": {"hierro": 3, "cobre": 3, "silicio": 1}, "kind": "building", "stage": 1},
 	# Pantallas que muestran cómo va el planeta.
 	"pantalla": {"name": "Pantalla de terraformación", "cost": {"hierro": 2, "silicio": 2}, "kind": "building", "stage": 0},
 	"monitor_oxigeno": {"name": "Monitor de oxígeno", "cost": {"hierro": 1, "silicio": 1}, "kind": "building", "stage": 0},
@@ -101,6 +111,15 @@ const MACHINES := {
 	"bomba": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 0, "storage": 20, "produces": "agua", "produce_time": 6.0},
 	# El bancal, además de subir la biomasa, da verduras para comer.
 	"cultivo": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 3, "storage": 12, "produces": "verdura", "produce_time": 20.0},
+	# Se pone sobre un depósito y saca su recurso ("deposit") sin agotarlo.
+	"extractor": {"energy": -1, "oxygen": 0, "temperature": 0, "biomass": 0, "storage": 15, "produces": "deposit", "produce_time": 15.0},
+	# Guarda la energía que sobra y la da cuando falta (de noche).
+	"bateria": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "battery": true},
+	# "inside" = solo se coloca en el suelo de la base. Con E se duerme hasta
+	# el amanecer y se reaparece en ella al morir.
+	"cama": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "inside": true, "bed": true},
+	# Luz con su propia placa solar: se enciende sola de noche.
+	"farola": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "lamp": true},
 	# Pantallas: no gastan energía. "display" es lo que enseñan: una métrica
 	# o "index" para el índice con todas las métricas.
 	"pantalla": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "display": "index"},
@@ -187,6 +206,12 @@ const RAIN_PLANT_FACTOR := 2.0
 # Los insectos hacen que los bancales cercanos den verduras más rápido.
 const POLLEN_RANGE := 10.0
 const POLLEN_FACTOR := 1.5
+# Baterías: cada una guarda BATTERY_CAPACITY unidades de energía por segundo
+# (una de energía durante una noche entera) y da o carga hasta BATTERY_POWER.
+const BATTERY_CAPACITY := 120.0
+const BATTERY_POWER := 2
+# Al dormir se pasa el hambre de este tanto del tiempo que se salta.
+const SLEEP_HUNGER_FACTOR := 0.5
 # Versión del guardado. La 2 añadió las Lluvias entre el Deshielo y Habitable.
 const SAVE_VERSION := 2
 const SAVE_PATH := "user://partida.json"
@@ -212,6 +237,10 @@ var time_of_day := START_TIME
 var day := 1
 var warmth := WARMTH_MAX
 var hunger := HUNGER_MAX
+# Energía guardada en todas las baterías juntas.
+var battery_charge := 0.0
+# Energía que dan ahora las baterías (se suma a la producida).
+var _battery_output := 0
 # Segundos que lleva el jugador con la barra de comida vacía.
 var _starve_time := 0.0
 var _was_hungry := false
@@ -233,8 +262,11 @@ var mine_progress := -1.0
 var tool_mode := "recoger"
 # Construcciones colocadas: [{"kind", "x", "y", "z", "rot"}], para el guardado.
 var machines: Array = []
-# Módulos de la base: [{"x", "y", "z", "rot", "sides"}].
+# Módulos de la base: [{"kind", "x", "y", "z", "rot", "sides", "level",
+# "ladder"}]. Sin "kind" (partidas viejas) es un "modulo"; sin "level", en el suelo.
 var modules: Array = []
+# Terreno excavado para construir: {Vector2i(vértice): altura máxima}.
+var digs := {}
 # Vehículos: [{"kind", "x", "y", "z", "rot", "battery", "items"}].
 var vehicles: Array = []
 # El vehículo que conduce el jugador, o null.
@@ -266,6 +298,7 @@ func _process(delta: float) -> void:
 		save_game()
 	if finished or dead:
 		return
+	_update_battery(delta)
 	if not machine_counts.is_empty():
 		for metric in METRICS:
 			set(metric, minf(100.0, float(get(metric)) + metric_rate(metric) * delta))
@@ -312,7 +345,7 @@ func respawn() -> void:
 	_was_frozen = false
 	_was_low_oxygen = false
 	player_respawned.emit()
-	message.emit("Vuelves a la base.")
+	message.emit("Vuelves a tu cama." if spawn_bed() != null else "Vuelves a la base.")
 
 
 ## 1 a mediodía, -1 a medianoche.
@@ -473,7 +506,12 @@ func player_o2_max() -> float:
 	return TANK_O2_MAX if has_tank else PLAYER_O2_MAX
 
 
+## Energía que hay: la que se produce más la que dan las baterías.
 func energy_supply() -> int:
+	return generated_energy() + _battery_output
+
+
+func generated_energy() -> int:
 	var supply := 0
 	var night := is_night()
 	for kind in machine_counts:
@@ -481,6 +519,59 @@ func energy_supply() -> int:
 			continue
 		supply += maxi(0, int(MACHINES[kind]["energy"])) * int(machine_counts[kind])
 	return supply
+
+
+func battery_capacity() -> float:
+	return BATTERY_CAPACITY * int(machine_counts.get("bateria", 0))
+
+
+## Con energía de sobra las baterías se cargan; si falta, la dan.
+func _update_battery(delta: float) -> void:
+	_battery_output = 0
+	var count := int(machine_counts.get("bateria", 0))
+	battery_charge = clampf(battery_charge, 0.0, battery_capacity())
+	if count == 0:
+		return
+	var spare := generated_energy() - energy_demand()
+	var power := BATTERY_POWER * count
+	if spare > 0:
+		battery_charge = minf(battery_capacity(), battery_charge + mini(spare, power) * delta)
+	elif spare < 0 and battery_charge > 0.0:
+		_battery_output = mini(-spare, power)
+		battery_charge = maxf(0.0, battery_charge - _battery_output * delta)
+
+
+func battery_percent() -> float:
+	var capacity := battery_capacity()
+	return 100.0 * battery_charge / capacity if capacity > 0.0 else 0.0
+
+
+## Duerme en la cama: de noche se pasa hasta el amanecer. La cama queda
+## como sitio donde se reaparece.
+func sleep(bed: Dictionary) -> void:
+	for m in machines:
+		m.erase("spawn")
+	bed["spawn"] = true
+	if not is_night():
+		message.emit("Solo se puede dormir de noche. Reaparecerás en esta cama.")
+		return
+	# Amanece cuando la altura del sol pasa de 0, a las 6:00 (0.25).
+	var dawn := 0.26
+	var skipped := fposmod(dawn - time_of_day, 1.0)
+	if time_of_day > dawn:
+		day += 1
+	time_of_day = dawn
+	hunger = maxf(1.0, hunger - HUNGER_DRAIN * skipped * DAY_LENGTH * SLEEP_HUNGER_FACTOR)
+	warmth = WARMTH_MAX
+	message.emit("Duermes hasta el amanecer. Reaparecerás en esta cama.")
+
+
+## Posición de la cama donde se ha dormido, o null si no hay.
+func spawn_bed():
+	for m in machines:
+		if m.get("spawn", false):
+			return Vector3(float(m["x"]), float(m["y"]), float(m["z"]))
+	return null
 
 
 func energy_demand() -> int:
@@ -708,10 +799,12 @@ func save_game() -> void:
 		"day": day,
 		"warmth": warmth,
 		"hunger": hunger,
+		"battery_charge": battery_charge,
 		"finished": finished,
 		"machines": machines,
 		"modules": modules,
 		"vehicles": vehicles,
+		"digs": _digs_list(),
 	}
 	var player := get_tree().get_first_node_in_group("player") as Node3D
 	if player:
@@ -723,6 +816,14 @@ func save_game() -> void:
 		push_warning("No se pudo guardar la partida: %s" % FileAccess.get_open_error())
 		return
 	file.store_string(JSON.stringify(data))
+
+
+## Las excavaciones como [i, j, altura], que es lo que cabe en JSON.
+func _digs_list() -> Array:
+	var list := []
+	for key in digs:
+		list.append([key.x, key.y, digs[key]])
+	return list
 
 
 ## Carga la partida guardada, si existe. Devuelve true si se ha cargado.
@@ -763,6 +864,7 @@ func load_game() -> bool:
 	day = int(data.get("day", 1))
 	warmth = float(data.get("warmth", WARMTH_MAX))
 	hunger = float(data.get("hunger", HUNGER_MAX))
+	battery_charge = float(data.get("battery_charge", 0.0))
 	_was_hungry = hunger <= HUNGER_WARNING
 	if not data.has("hunger"):
 		# Partida de antes del hambre: se le dan las raciones del principio.
@@ -777,6 +879,9 @@ func load_game() -> bool:
 	for m in data.get("modules", []):
 		if typeof(m) == TYPE_DICTIONARY:
 			modules.append(m)
+	for d in data.get("digs", []):
+		if d is Array and d.size() == 3:
+			digs[Vector2i(int(d[0]), int(d[1]))] = float(d[2])
 	for v in data.get("vehicles", []):
 		if typeof(v) == TYPE_DICTIONARY and RECIPES.has(v.get("kind", "")):
 			vehicles.append(v)
@@ -818,6 +923,8 @@ func _reset_state() -> void:
 	day = 1
 	warmth = WARMTH_MAX
 	hunger = HUNGER_MAX
+	battery_charge = 0.0
+	_battery_output = 0
 	_starve_time = 0.0
 	_was_hungry = false
 	_was_night = false
@@ -832,6 +939,7 @@ func _reset_state() -> void:
 	machines = []
 	modules = []
 	vehicles = []
+	digs = {}
 	vehicle = null
 	tool_mode = "recoger"
 	sheltered = false

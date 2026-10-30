@@ -68,6 +68,9 @@ func _scene(kind: String) -> SubViewport:
 	# Vista de tres cuartos desde delante (-Z) y algo de arriba; las puertas y
 	# ventanas se miran más de frente para que se vea el hueco.
 	var direction := Vector3(0.55, 0.45, -1.0) if Game.RECIPES[kind]["kind"] == "fitting" else Vector3(0.8, 0.7, -1.0)
+	# Los pasillos, más desde arriba para que se vea su forma.
+	if kind.begins_with("pasillo"):
+		direction = Vector3(0.45, 1.6, -0.8)
 	var distance := radius / sin(deg_to_rad(camera.fov / 2.0)) * 1.05
 	camera.look_at_from_position(center + direction.normalized() * distance, center)
 	return viewport
@@ -79,11 +82,18 @@ func _model(kind: String) -> Node3D:
 			return _item(kind)
 		"module":
 			var module := Module.new()
-			module.setup({}, true)
+			module.setup({"kind": kind}, true)
 			return module
 		"fitting":
-			# Solo la pared delantera de un módulo con la pieza puesta.
 			var module := Module.new()
+			if kind == "escalera":
+				# Solo la escalera.
+				module.setup({"ladder": true}, true)
+				for child in module.get_children():
+					if not child.has_meta("ladder"):
+						child.visible = false
+				return module
+			# Solo la pared delantera de un módulo con la pieza puesta.
 			module.setup({"sides": [kind, "pared", "pared", "pared"]}, true)
 			for child in module.get_children():
 				if not (child.has_meta("side") and int(child.get_meta("side")) == 0):

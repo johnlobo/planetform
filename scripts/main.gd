@@ -510,12 +510,41 @@ func spawn_module(data: Dictionary) -> void:
 	module.position = Vector3(float(data["x"]), float(data["y"]), float(data["z"]))
 	module.rotation.y = float(data["rot"])
 	add_child(module)
-	# Los lados pegados a otro módulo se abren en los dos para unirlos.
+	# Los lados pegados a otro módulo se abren en los dos para unirlos, si
+	# los dos tienen boca por ese lado. Con un pasillo el hueco es estrecho.
 	for other in modules:
 		if _adjacent(module, other):
-			module.set_open(module.side_towards(other.global_position), true)
-			other.set_open(other.side_towards(module.global_position), true)
+			var side := module.side_towards(other.global_position)
+			var other_side := other.side_towards(module.global_position)
+			if module.has_port(side) and other.has_port(other_side):
+				var join := "narrow" if module.is_corridor() or other.is_corridor() else "full"
+				module.set_open(side, join)
+				other.set_open(other_side, join)
+		elif _stacked(other, module):
+			other.above = module
+			module.below = other
+			module.rebuild()
+			other.rebuild()
+		elif _stacked(module, other):
+			module.above = other
+			other.below = module
+			module.rebuild()
+			other.rebuild()
 	modules.append(module)
+
+
+## true si upper está justo encima de lower, una planta más arriba.
+func _stacked(lower: Module, upper: Module) -> bool:
+	var offset := upper.global_position - lower.global_position
+	return Vector2(offset.x, offset.z).length() < 0.05 and absf(offset.y - Module.STOREY) < 0.05
+
+
+## Módulo por cuya escalera se puede trepar en el punto, o null.
+func ladder_at(point: Vector3) -> Module:
+	for module in modules:
+		if module.on_ladder(point):
+			return module
+	return null
 
 
 func _adjacent(a: Module, b: Module) -> bool:
@@ -546,27 +575,37 @@ func dismantle_info(target: Object) -> Dictionary:
 	if not (target is Node and target.has_meta("module")):
 		return {}
 	var module: Module = target.get_meta("module")
+	if target.has_meta("ladder"):
+		return {"name": Game.RECIPES["escalera"]["name"], "node": target, "refund": Game.RECIPES["escalera"]["cost"]}
 	if target.has_meta("side"):
 		var side: int = target.get_meta("side")
 		var fitting := String(module.sides[side])
-		if fitting != "pared" and not module.open[side]:
+		if fitting != "pared" and module.open[side] == "":
 			# La pared con la puerta o ventana: se quita solo esa pieza.
 			var wall: Node3D = target
 			while wall.get_parent() != module:
 				wall = wall.get_parent()
 			return {"name": Game.RECIPES[fitting]["name"], "node": wall, "refund": Game.RECIPES[fitting]["cost"]}
-	var info := {"name": Game.RECIPES["modulo"]["name"], "node": module}
+	var info := {"name": Game.RECIPES[module.kind]["name"], "node": module}
+	if module.above:
+		info["reason"] = "quita antes el módulo de encima"
+		return info
 	for child in get_children():
 		if child is Machine and module.contains(child.global_position + Vector3(0, 0.3, 0)):
 			info["reason"] = "saca antes lo que hay dentro"
 			return info
+		if child is Machine and _on_roof(module, child.global_position):
+			info["reason"] = "quita antes lo que hay en el techo"
+			return info
 	# Se devuelven también las puertas y ventanas que tenga.
-	var refund: Dictionary = Game.RECIPES["modulo"]["cost"].duplicate()
-	for fitting in module.sides:
-		if fitting != "pared":
-			var cost: Dictionary = Game.RECIPES[fitting]["cost"]
-			for res in cost:
-				refund[res] = int(refund.get(res, 0)) + int(cost[res])
+	var refund: Dictionary = Game.RECIPES[module.kind]["cost"].duplicate()
+	var extras: Array = module.sides.filter(func(f): return f != "pared")
+	if module.has_ladder():
+		extras.append("escalera")
+	for fitting in extras:
+		var cost: Dictionary = Game.RECIPES[fitting]["cost"]
+		for res in cost:
+			refund[res] = int(refund.get(res, 0)) + int(cost[res])
 	info["refund"] = refund
 	return info
 
@@ -597,6 +636,8 @@ func dismantle(target: Object) -> bool:
 		rover.queue_free()
 	elif node is Module:
 		_remove_module(node as Module)
+	elif target.has_meta("ladder"):
+		(target.get_meta("module") as Module).set_ladder(false)
 	else:
 		var module: Module = target.get_meta("module")
 		module.set_side(int(target.get_meta("side")), "pared")
@@ -604,6 +645,13 @@ func dismantle(target: Object) -> bool:
 	Sfx.play("desmontar")
 	Game.message.emit("+%s" % Game.cost_text(info["refund"]))
 	return true
+
+
+## true si el punto está sobre el techo del módulo.
+func _on_roof(module: Module, point: Vector3) -> bool:
+	var local := module.to_local(point)
+	var half := Module.SIZE / 2.0 + 0.1
+	return absf(local.x) < half and absf(local.z) < half and absf(local.y - Module.STOREY) < 0.3
 
 
 func _remove_module(module: Module) -> void:
@@ -615,7 +663,13 @@ func _remove_module(module: Module) -> void:
 	# Los vecinos vuelven a tener pared en el lado que compartían.
 	for other in modules:
 		if _adjacent(module, other):
-			other.set_open(other.side_towards(module.global_position), false)
+			other.set_open(other.side_towards(module.global_position), "")
+	if module.below:
+		module.below.above = null
+		module.below.rebuild()
+	if module.above:
+		module.above.below = null
+		module.above.rebuild()
 	module.queue_free()
 
 
