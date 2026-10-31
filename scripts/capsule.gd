@@ -229,10 +229,16 @@ func _build_window_wall(k: int) -> void:
 	_wall_box(spot, Vector3(WINDOW_WIDTH, hole, 0.04), Vector3(0, WINDOW_SILL + hole / 2.0, 0), _glass_material)
 	var frame := StandardMaterial3D.new()
 	frame.albedo_color = Color(0.95, 0.55, 0.15)
+	# El marco forra el hueco: entra 5 cm en él y sobresale de la pared, sin
+	# caras en el mismo plano que la pared ni barras solapadas (parpadearían).
+	var bar := 0.08
+	var inset := 0.05
+	var depth := WALL_THICKNESS + 0.06
 	for sx in [-1.0, 1.0]:
-		_visual(spot, Vector3(0.06, hole + 0.06, WALL_THICKNESS + 0.04), Vector3(sx * (WINDOW_WIDTH / 2.0 + 0.03), WINDOW_SILL + hole / 2.0, 0), frame)
-	for y in [WINDOW_SILL - 0.03, WINDOW_TOP + 0.03]:
-		_visual(spot, Vector3(WINDOW_WIDTH + 0.12, 0.06, WALL_THICKNESS + 0.04), Vector3(0, y, 0), frame)
+		_visual(spot, Vector3(bar, hole + 2.0 * (bar - inset), depth), Vector3(sx * (WINDOW_WIDTH / 2.0 - inset + bar / 2.0), WINDOW_SILL + hole / 2.0, 0), frame)
+	for sy in [-1.0, 1.0]:
+		var y: float = WINDOW_SILL + hole / 2.0 + sy * (hole / 2.0 - inset + bar / 2.0)
+		_visual(spot, Vector3(WINDOW_WIDTH - 2.0 * inset, bar, depth), Vector3(0, y, 0), frame)
 
 
 func _build_door_wall(k: int) -> void:
@@ -244,9 +250,15 @@ func _build_door_wall(k: int) -> void:
 	# Marco naranja alrededor del hueco.
 	var accent := StandardMaterial3D.new()
 	accent.albedo_color = Color(0.95, 0.55, 0.15)
+	# Como el de las ventanas: forra el hueco sin caras en el plano de la pared
+	# ni piezas solapadas.
+	var bar := 0.08
+	var inset := 0.05
+	var depth := WALL_THICKNESS + 0.06
+	var jamb_height := DOOR_HEIGHT - inset + bar
 	for sx in [-1.0, 1.0]:
-		_visual(spot, Vector3(0.08, DOOR_HEIGHT, WALL_THICKNESS + 0.06), Vector3(sx * (DOOR_WIDTH / 2.0 + 0.04), DOOR_HEIGHT / 2.0, 0), accent)
-	_visual(spot, Vector3(DOOR_WIDTH + 0.16, 0.08, WALL_THICKNESS + 0.06), Vector3(0, DOOR_HEIGHT + 0.04, 0), accent)
+		_visual(spot, Vector3(bar, jamb_height, depth), Vector3(sx * (DOOR_WIDTH / 2.0 - inset + bar / 2.0), jamb_height / 2.0, 0), accent)
+	_visual(spot, Vector3(DOOR_WIDTH - 2.0 * inset, bar, depth), Vector3(0, DOOR_HEIGHT - inset + bar / 2.0, 0), accent)
 
 
 ## Pieza que solo se ve, sin colisión.
