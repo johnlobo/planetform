@@ -9,6 +9,7 @@ var _subtitle: Label
 var _continue_button: Button
 var _new_button: Button
 var _quit_button: Button
+var _shadow_button: Button
 var _box: VBoxContainer
 # true en la pantalla de título; false en el menú de pausa.
 var _is_title := false
@@ -52,6 +53,7 @@ func _ready() -> void:
 
 	_continue_button = _button(_on_continue_pressed)
 	_new_button = _button(_on_new_pressed)
+	_shadow_button = _button(_on_shadows_pressed)
 	_quit_button = _button(_on_quit_pressed)
 	_quit_button.text = "Salir"
 	# En el navegador no se puede cerrar la pestaña desde el juego.
@@ -94,7 +96,17 @@ func open_pause() -> void:
 	_open()
 
 
+func _on_shadows_pressed() -> void:
+	Game.set_shadow_quality(Game.shadow_quality + 1)
+	_update_shadow_text()
+
+
+func _update_shadow_text() -> void:
+	_shadow_button.text = Game.SHADOW_NAMES[Game.shadow_quality]
+
+
 func _open() -> void:
+	_update_shadow_text()
 	_confirming_new = false
 	_new_button.text = "Nueva partida"
 	visible = true

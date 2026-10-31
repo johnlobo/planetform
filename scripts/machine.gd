@@ -4,6 +4,7 @@ extends StaticBody3D
 ## drones, colector de lluvia, árbol, criadero de insectos...).
 
 const Drone := preload("res://scripts/drone.gd")
+const MeshMerge := preload("res://scripts/mesh_merge.gd")
 const DRONE_COUNT := 2
 
 var kind := "panel"
@@ -841,6 +842,25 @@ func setup(machine_kind: String) -> void:
 	footprint = shape.size
 	if Game.MACHINES[kind].has("display"):
 		update_screen()
+	_merge_static_parts()
+
+
+## Junta en pocas mallas las piezas que nunca se mueven ni cambian de brillo;
+## las que se animan (giran, suben, se encienden, se esconden) se quedan sueltas.
+func _merge_static_parts() -> void:
+	var moving := [_spinner, _rotor, _piston, _battery_bar, _collected, _lamp]
+	moving.append_array(_drones)
+	moving.append_array(_fruits)
+	moving.append_array(_insects)
+	for bar in _bars:
+		moving.append(bar["fill"])
+	var changing := [_charge_light, _battery_material, _lamp_material]
+	var parts := []
+	for child in get_children():
+		if child is MeshInstance3D and not child in moving and MeshMerge.can_merge(child, changing):
+			parts.append(child)
+	if parts.size() > 1:
+		MeshMerge.merge(self, parts)
 
 
 func _ready() -> void:

@@ -27,6 +27,7 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 | L | Encender y apagar la linterna |
 | W S / A D (en el róver) | Acelerar y frenar o marcha atrás / girar; Espacio es el freno |
 | I | Abrir y cerrar el inventario: la mochila por casillas, usar botellas y comida, tirar objetos y ver el equipo |
+| F3 | Contador de rendimiento: FPS, ms por fotograma, llamadas de dibujo, trozos cargados y lo que costó el último |
 | Esc | Cerrar el menú, la taquilla o la colocación que tengas abierta; si no hay nada abierto, pausa (y suelta el ratón) |
 | R / rueda del ratón | Girar lo que estás colocando |
 | Clic derecho o Esc | Cancelar la colocación |
@@ -154,7 +155,7 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 - Etapas: Roca muerta (0 %) → Primera neblina (20 %) → Deshielo (50 %, hielo que se funde, lagos, musgo) → Lluvias (75 %, nubes, lluvia, bosques) → Habitable (100 %).
 
 La partida se guarda sola cada 15 segundos, al cambiar de etapa, al cerrar la ventana, al perder el foco y, en el navegador, al ocultar la pestaña.
-Al arrancar sale el menú principal: **Continuar partida** carga lo guardado y **Nueva partida** (pide confirmación) la borra y empieza de cero. Con **Esc** se abre el mismo menú como pausa, siempre que no haya otro menú abierto (entonces Esc solo lo cierra).
+Al arrancar sale el menú principal: **Continuar partida** carga lo guardado y **Nueva partida** (pide confirmación) la borra y empieza de cero. Con **Esc** se abre el mismo menú como pausa, siempre que no haya otro menú abierto (entonces Esc solo lo cierra). En el menú de pausa hay un botón para cambiar las sombras (bajas por defecto, altas o sin sombras); se guarda aparte de la partida.
 Se guarda en `user://partida.json` (en el escritorio, la carpeta de datos de usuario de Godot; en el navegador, el almacenamiento del navegador).
 
 Todos los sonidos (pasos, recoger, craftear, colocar, avisos, viento, lluvia) se generan por código al arrancar en `scripts/sound.gd`, sin archivos de audio ni licencias. El viento sopla más fuerte de noche.

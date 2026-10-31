@@ -7,6 +7,7 @@ const Machine := preload("res://scripts/machine.gd")
 const Player := preload("res://scripts/player.gd")
 const Hud := preload("res://scripts/hud.gd")
 const Menu := preload("res://scripts/menu.gd")
+const DebugOverlay := preload("res://scripts/debug_overlay.gd")
 const Placer := preload("res://scripts/placer.gd")
 const Module := preload("res://scripts/module.gd")
 const WaterBody := preload("res://scripts/water_body.gd")
@@ -106,6 +107,7 @@ func _ready() -> void:
 	add_child(hud)
 	var menu := Menu.new()
 	add_child(menu)
+	add_child(DebugOverlay.new())
 	menu.opened.connect(hud.on_menu_opened)
 	menu.closed.connect(hud.on_menu_closed)
 	Game.place_requested.connect(_on_place_requested)
@@ -275,8 +277,9 @@ func _build_environment() -> void:
 
 	sun = DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-50.0, 30.0, 0.0)
-	sun.shadow_enabled = true
 	add_child(sun)
+	_apply_shadows()
+	Game.settings_changed.connect(_apply_shadows)
 
 	moon = DirectionalLight3D.new()
 	moon.rotation_degrees = Vector3(-60.0, -120.0, 0.0)
@@ -285,6 +288,18 @@ func _build_environment() -> void:
 	add_child(moon)
 
 	_build_stars()
+
+
+## Sombras según el ajuste: altas (4 cortes hasta 100 m), bajas (2 cortes hasta
+## 60 m, mucho más baratas) o ninguna.
+func _apply_shadows() -> void:
+	sun.shadow_enabled = Game.shadow_quality > 0
+	if Game.shadow_quality >= 2:
+		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+		sun.directional_shadow_max_distance = 100.0
+	else:
+		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+		sun.directional_shadow_max_distance = 60.0
 
 
 ## Puntos blancos en una cúpula que sigue al jugador.

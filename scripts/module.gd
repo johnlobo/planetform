@@ -8,6 +8,8 @@ extends Node3D
 ## Encima del techo de un módulo se puede poner otro (una planta más) y, con
 ## una escalera, se sube por una trampilla al techo o a la planta de arriba.
 
+const MeshMerge := preload("res://scripts/mesh_merge.gd")
+
 const SIZE := 4.0
 const HEIGHT := 3.0 # altura libre del interior
 const WALL := 0.2
@@ -227,6 +229,7 @@ func _build() -> void:
 	_lamps.clear()
 	if is_corridor():
 		_build_corridor()
+		_merge_static_parts()
 		return
 	var half := SIZE / 2.0
 	# Suelo aparte: sobre él se pueden colocar máquinas.
@@ -278,6 +281,22 @@ func _build() -> void:
 				_box(wall, Vector3(WINDOW_SIZE.x, WINDOW_SIZE.y, 0.05), Vector3(0, FLOOR + WINDOW_BOTTOM + WINDOW_SIZE.y / 2.0, z), "cristal")
 			_:
 				_box(wall, Vector3(SIZE, HEIGHT, WALL), Vector3(0, FLOOR + HEIGHT / 2.0, z), "pared")
+	_merge_static_parts()
+
+
+## Junta las cajas fijas de cada cuerpo (suelo, techo, paredes) en pocas mallas.
+## La lámpara cambia de brillo y el cristal es transparente: esas se quedan sueltas.
+func _merge_static_parts() -> void:
+	var keep := [_material("lampara")]
+	for body in get_children():
+		if body is OmniLight3D:
+			continue
+		var parts := []
+		for child in body.get_children():
+			if child is MeshInstance3D and MeshMerge.can_merge(child, keep):
+				parts.append(child)
+		if parts.size() > 1:
+			MeshMerge.merge(body, parts)
 
 
 ## Puerta corredera y rampa delante de ella, en una pared cuya cara está en z.
