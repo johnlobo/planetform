@@ -18,6 +18,7 @@ signal crate_opened(text: String)
 signal research_requested
 signal unlocks_changed
 signal map_requested
+signal settings_changed
 
 const RESOURCE_NAMES := {
 	"hierro": "Hierro",
@@ -295,6 +296,9 @@ const FRAGMENT_CHANCE := 0.45
 # la 3, el nivel de mochila y la humedad.
 const SAVE_VERSION := 3
 const SAVE_PATH := "user://partida.json"
+# Los ajustes van aparte de la partida: valen para todas.
+const SETTINGS_PATH := "user://ajustes.cfg"
+const SHADOW_NAMES := ["Sin sombras", "Sombras bajas", "Sombras altas"]
 const AUTOSAVE_TIME := 15.0
 
 var inventory := {"hierro": 0, "silicio": 0, "hielo": 0, "cobre": 0, "agua": 0, "semillas": 0, "botella": 0,
@@ -387,6 +391,8 @@ var sheltered := false
 # Posición del jugador leída de la partida guardada, o null si no hay.
 var player_position = null
 var _autosave_timer := 0.0
+## Calidad de las sombras: índice de SHADOW_NAMES. Por defecto, bajas.
+var shadow_quality := 1
 var _skip_next_load := false
 # true tras empezar una nueva partida, para no volver a la pantalla de título.
 var skip_title := false
@@ -396,11 +402,26 @@ var _js_visibility_callback
 
 func _ready() -> void:
 	_setup_input()
+	load_settings()
 	inventory_changed.connect(_check_backpack)
 	if OS.has_feature("web"):
 		_js_visibility_callback = JavaScriptBridge.create_callback(_on_web_visibility_change)
 		var document = JavaScriptBridge.get_interface("document")
 		document.addEventListener("visibilitychange", _js_visibility_callback)
+
+
+func load_settings() -> void:
+	var config := ConfigFile.new()
+	if config.load(SETTINGS_PATH) == OK:
+		shadow_quality = clampi(int(config.get_value("video", "sombras", shadow_quality)), 0, SHADOW_NAMES.size() - 1)
+
+
+func set_shadow_quality(value: int) -> void:
+	shadow_quality = posmod(value, SHADOW_NAMES.size())
+	var config := ConfigFile.new()
+	config.set_value("video", "sombras", shadow_quality)
+	config.save(SETTINGS_PATH)
+	settings_changed.emit()
 
 
 func _process(delta: float) -> void:

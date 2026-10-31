@@ -21,6 +21,14 @@ const LOAD_RANGE := 150.0 # se prepara un poco antes de que haga falta
 const UNLOAD_RANGE := 260.0
 const SKIRT := 12.0 # faldón bajo el borde de cada malla para tapar rendijas
 const BUILD_BUDGET_MS := 6.0 # tiempo por fotograma para preparar trozos
+# Las mallas lejanas se dibujan en bloques de BLOCK x BLOCK trozos (25 en vez de
+# 400). Cerca del jugador un bloque se cambia por las mallas de sus trozos, para
+# poder esconder solo los que tienen malla detallada encima.
+const BLOCK := 4
+const EXPAND_RANGE := 200.0
+const COLLAPSE_RANGE := 260.0
+# Pasos en que se prepara un trozo (ver _load_step).
+const LOAD_STEPS := 12
 const HEIGHT := 6.0
 const START_AREA := 160.0
 # Montañas: empiezan a MOUNTAIN_START metros del centro y crecen hasta MOUNTAIN_FULL.
@@ -119,14 +127,24 @@ var _plateau := FastNoiseLite.new()
 ## Semilla de la partida (Game.world_seed): 0 es el mapa de siempre.
 var world_seed := 0
 # Por trozo (Vector2i): {"center", "far", "detail", "shape", "trees", "ice",
-# "site"}. "site" es el sitio recóndito del trozo ({} si no tiene).
+# "site", "stage", "work", "load_ms"}. "site" es el sitio recóndito del trozo
+# ({} si no tiene). "far" solo existe con el bloque abierto. "stage" es el paso
+# de preparación por el que va (LOAD_STEPS = listo) y "work" lo que lleva hecho.
 var _chunks := {}
+# Por bloque (Vector2i): {"center", "mesh", "expanded", "ready", "dirty"}.
+var _blocks := {}
+# Trabajo pendiente, lo más urgente primero: ["expand", bloque] o ["load", trozo].
+var _queue := []
+## Para el contador F3: ms que costó preparar el último trozo y trozos listos.
+var last_chunk_ms := 0.0
+var loaded_chunks := 0
 var _tree_meshes: Array[Mesh] = []
 var _boulder_mesh: Mesh
 # Vértices de la malla de las rocas grandes, para darles la misma forma al chocar.
 var _boulder_hull := PackedVector3Array()
 var _deco_material := StandardMaterial3D.new()
 var _check_time := 0.0
+var _last_pos := Vector3.ZERO
 # Sitio recóndito del trozo que se está preparando.
 var _avoid := {}
 # Sitios recónditos por trozo (Vector2i), para excavar el terreno.
@@ -196,23 +214,27 @@ void fragment() {
 		for j in count:
 			var key := Vector2i(i, j)
 			var center := Vector3(-WORLD_SIZE / 2.0 + (i + 0.5) * CHUNK, 0.0, -WORLD_SIZE / 2.0 + (j + 0.5) * CHUNK)
-			var far := MeshInstance3D.new()
-			far.mesh = _chunk_mesh(center, FAR_STEP)[0]
-			far.material_override = material
-			far.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			far.position = center
-			add_child(far)
-			_chunks[key] = {"center": center, "far": far, "detail": null, "shape": null, "trees": null, "ice": [], "site": _sites.get(key, {})}
-	for key in _chunks:
-		if _distance(_chunks[key], around) < NEAR_RANGE:
-			_load(key)
+			_chunks[key] = {"center": center, "far": null, "detail": null, "shape": null, "trees": null, "ice": [],
+				"site": _sites.get(key, {}), "stage": 0, "work": {}, "load_ms": 0.0}
+	var blocks := ceili(float(count) / BLOCK)
+	for i in blocks:
+		for j in blocks:
+			var size := BLOCK * CHUNK
+			var center := Vector3(-WORLD_SIZE / 2.0 + (i + 0.5) * size, 0.0, -WORLD_SIZE / 2.0 + (j + 0.5) * size)
+			var mesh := MeshInstance3D.new()
+			mesh.mesh = _chunk_mesh(center, FAR_STEP, size)[0]
+			mesh.material_override = material
+			mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mesh.position = center
+			add_child(mesh)
+			_blocks[Vector2i(i, j)] = {"center": center, "mesh": mesh, "expanded": false, "ready": false, "dirty": false}
 	_update(around, INF)
 
 
 ## Altura del terreno en un vértice de la malla: la del ruido, salvo donde se
 ## ha excavado para construir (Game.digs).
-func height_at(x: float, z: float) -> float:
-	var h := _carve(x, z, _noise_height(x, z))
+func height_at(x: float, z: float, weights: Variant = null) -> float:
+	var h := _carve(x, z, _noise_height(x, z, weights))
 	if not Game.digs.is_empty():
 		var key := _vertex(x, z)
 		# Solo en los vértices: entre ellos manda el ruido (pendientes).
@@ -266,22 +288,48 @@ func _chunk_key(x: float, z: float) -> Vector2i:
 func _rebuild_ground(key: Vector2i) -> void:
 	var chunk: Dictionary = _chunks[key]
 	var center: Vector3 = chunk["center"]
-	chunk["far"].mesh = _chunk_mesh(center, FAR_STEP)[0]
-	if chunk["detail"] == null:
+	if chunk["far"] != null:
+		chunk["far"].mesh = _chunk_mesh(center, FAR_STEP)[0]
+	var block: Dictionary = _blocks[_block_key(key)]
+	if block["expanded"] and block["ready"]:
+		# El bloque no se ve: se rehace cuando vuelva a hacer falta.
+		block["dirty"] = true
+	else:
+		_rebuild_block(block)
+	if chunk["stage"] < 6:
+		# Si la malla detallada va a medias, lleva las alturas de antes: se empieza de nuevo.
+		chunk["stage"] = 0
+		chunk["work"] = {}
 		return
 	var built := _chunk_mesh(center, STEP)
 	(chunk["detail"].get_child(0) as MeshInstance3D).mesh = built[0]
+	if chunk["stage"] >= 7:
+		chunk["shape"].shape = _concave(built[1])
+	else:
+		chunk["work"]["faces"] = built[1]
+
+
+func _concave(faces: PackedVector3Array) -> ConcavePolygonShape3D:
 	var shape := ConcavePolygonShape3D.new()
 	shape.backface_collision = true
-	shape.set_faces(built[1])
-	chunk["shape"].shape = shape
+	shape.set_faces(faces)
+	return shape
 
 
-func _noise_height(x: float, z: float) -> float:
+static func _block_key(key: Vector2i) -> Vector2i:
+	return Vector2i(key.x / BLOCK, key.y / BLOCK)
+
+
+func _rebuild_block(block: Dictionary) -> void:
+	block["mesh"].mesh = _chunk_mesh(block["center"], FAR_STEP, BLOCK * CHUNK)[0]
+	block["dirty"] = false
+
+
+func _noise_height(x: float, z: float, weights: Variant = null) -> float:
 	var h := _base_height(x, z)
 	if Vector2(x, z).length() < BIOME_START:
 		return h
-	var basalt: float = _biome_weights(x, z)[3]
+	var basalt: float = (weights if weights != null else _biome_weights(x, z))[3]
 	if basalt > 0.0:
 		h += basalt * PLATEAU_HEIGHT * smoothstep(PLATEAU_FROM, PLATEAU_TO, _plateau.get_noise_2d(x, z))
 	return h
@@ -362,80 +410,215 @@ func _process(delta: float) -> void:
 	_check_time -= delta
 	if _check_time <= 0.0:
 		_check_time = 0.25
-		_update(pos, BUILD_BUDGET_MS)
+		_scan(pos)
+	_pump(BUILD_BUDGET_MS)
 
 
-## Muestra en cada trozo la malla que toca, borra lo que queda lejos y prepara
-## los trozos que se van a necesitar, los más cercanos primero, sin pasar de
-## budget_ms milisegundos.
+## Pone al día lo que se ve de cada bloque y cada trozo, borra lo que queda
+## lejos y apunta en la cola lo que hay que preparar, lo más cercano primero.
 func _update(pos: Vector3, budget_ms: float) -> void:
-	var pending := []
+	_scan(pos)
+	_pump(budget_ms)
+
+
+func _scan(pos: Vector3) -> void:
+	var work := []
+	for key in _blocks:
+		var block: Dictionary = _blocks[key]
+		var d := _rect_distance(block["center"], BLOCK * CHUNK / 2.0, pos)
+		if not block["expanded"] and d < EXPAND_RANGE:
+			block["expanded"] = true
+			block["ready"] = false
+		elif block["expanded"] and d > COLLAPSE_RANGE and _collapse(block, key):
+			continue
+		if block["expanded"] and not block["ready"]:
+			work.append([d - 1000.0, ["expand", key]])
 	for key in _chunks:
 		var chunk: Dictionary = _chunks[key]
-		var d := _distance(chunk, pos)
-		if chunk["detail"] == null and d < LOAD_RANGE:
-			pending.append([d, key])
+		var d := _rect_distance(chunk["center"], CHUNK / 2.0, pos)
+		if chunk["stage"] < LOAD_STEPS and d < LOAD_RANGE and _blocks[_block_key(key)]["expanded"]:
+			work.append([d, ["load", key]])
 		elif chunk["detail"] != null and d > UNLOAD_RANGE:
 			_unload(key)
-		var near: bool = chunk["detail"] != null and d < NEAR_RANGE
+		_show(key, d)
+	work.sort_custom(func(a, b): return a[0] < b[0])
+	_queue.clear()
+	for entry in work:
+		_queue.append(entry[1])
+	_last_pos = pos
+
+
+## Qué malla se ve en un trozo: la detallada si está lista y cerca; si no, la
+## lejana (la del bloque mientras este no esté abierto).
+func _show(key: Vector2i, d: float) -> void:
+	var chunk: Dictionary = _chunks[key]
+	var block: Dictionary = _blocks[_block_key(key)]
+	var open: bool = block["expanded"] and block["ready"]
+	var near: bool = open and chunk["stage"] >= LOAD_STEPS and d < NEAR_RANGE
+	if chunk["far"] != null:
 		chunk["far"].visible = not near
-		if chunk["detail"] != null:
-			chunk["detail"].visible = near
-	pending.sort_custom(func(a, b): return a[0] < b[0])
+	if chunk["detail"] != null:
+		chunk["detail"].visible = near and chunk["stage"] >= LOAD_STEPS
+
+
+## Cierra un bloque abierto y vuelve a dibujarlo entero. false si algún trozo
+## suyo sigue con la malla detallada.
+func _collapse(block: Dictionary, key: Vector2i) -> bool:
+	for i in BLOCK:
+		for j in BLOCK:
+			var chunk_key := key * BLOCK + Vector2i(i, j)
+			if _chunks.has(chunk_key) and _chunks[chunk_key]["detail"] != null:
+				return false
+	if block["dirty"]:
+		_rebuild_block(block)
+	block["mesh"].visible = true
+	block["expanded"] = false
+	block["ready"] = false
+	for i in BLOCK:
+		for j in BLOCK:
+			var chunk: Dictionary = _chunks.get(key * BLOCK + Vector2i(i, j), {})
+			if chunk.is_empty():
+				continue
+			chunk["stage"] = 0
+			chunk["work"] = {}
+			if chunk["far"] != null:
+				chunk["far"].queue_free()
+				chunk["far"] = null
+	return true
+
+
+## Hace trabajo de la cola sin pasar de budget_ms milisegundos (un paso
+## empezado siempre se acaba). Con INF vacía la cola entera.
+func _pump(budget_ms: float) -> void:
 	var start := Time.get_ticks_usec()
-	for p in pending:
+	while not _queue.is_empty():
 		if (Time.get_ticks_usec() - start) / 1000.0 > budget_ms:
-			# Lo que falte se hace en la siguiente comprobación.
-			_check_time = 0.0
-			break
-		_load(p[1])
-		var chunk: Dictionary = _chunks[p[1]]
-		var near: bool = p[0] < NEAR_RANGE
-		chunk["far"].visible = not near
-		chunk["detail"].visible = near
+			return
+		var task: Array = _queue[0]
+		if task[0] == "expand":
+			_expand_step(task[1])
+			if _blocks[task[1]]["ready"]:
+				_queue.pop_front()
+		else:
+			_load_step(task[1])
+			if _chunks[task[1]]["stage"] >= LOAD_STEPS:
+				_queue.pop_front()
 
 
-## Distancia en horizontal del punto al borde del trozo (0 si está dentro).
-func _distance(chunk: Dictionary, pos: Vector3) -> float:
-	var c: Vector3 = chunk["center"]
-	var dx := maxf(0.0, absf(pos.x - c.x) - CHUNK / 2.0)
-	var dz := maxf(0.0, absf(pos.z - c.z) - CHUNK / 2.0)
+## Hace la malla lejana de un trozo del bloque que falte; con todas hechas el
+## bloque se esconde.
+func _expand_step(key: Vector2i) -> void:
+	var block: Dictionary = _blocks[key]
+	for i in BLOCK:
+		for j in BLOCK:
+			var chunk_key := key * BLOCK + Vector2i(i, j)
+			if not _chunks.has(chunk_key) or _chunks[chunk_key]["far"] != null:
+				continue
+			var chunk: Dictionary = _chunks[chunk_key]
+			var far := MeshInstance3D.new()
+			far.mesh = _chunk_mesh(chunk["center"], FAR_STEP)[0]
+			far.material_override = material
+			far.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			far.position = chunk["center"]
+			add_child(far)
+			chunk["far"] = far
+			return
+	block["ready"] = true
+	block["mesh"].visible = false
+	if block["dirty"]:
+		_rebuild_block(block)
+
+
+## Distancia en horizontal del punto al borde de un cuadrado (0 si está dentro).
+func _rect_distance(c: Vector3, half: float, pos: Vector3) -> float:
+	var dx := maxf(0.0, absf(pos.x - c.x) - half)
+	var dz := maxf(0.0, absf(pos.z - c.z) - half)
 	return Vector2(dx, dz).length()
 
 
+## Prepara un trozo de golpe (al empezar y al teletransportarse).
 func _load(key: Vector2i) -> void:
+	while _chunks[key]["stage"] < LOAD_STEPS:
+		_load_step(key)
+
+
+## Un paso de la preparación de un trozo. Cada uno es corto para repartir el
+## trabajo en varios fotogramas; entre pasos el trozo no se ve.
+func _load_step(key: Vector2i) -> void:
 	var chunk: Dictionary = _chunks[key]
 	var center: Vector3 = chunk["center"]
-	var built := _chunk_mesh(center, STEP)
-	var detail := Node3D.new()
-	detail.position = center
-	var mesh_instance := MeshInstance3D.new()
-	mesh_instance.mesh = built[0]
-	mesh_instance.material_override = material
-	detail.add_child(mesh_instance)
-	add_child(detail)
-	var shape := ConcavePolygonShape3D.new()
-	shape.backface_collision = true
-	shape.set_faces(built[1])
-	var collision := CollisionShape3D.new()
-	collision.shape = shape
-	collision.position = center
-	body.add_child(collision)
-	chunk["detail"] = detail
-	chunk["shape"] = collision
-	# La misma semilla para cada trozo: al volver, todo está en el mismo sitio.
-	var rng := RandomNumberGenerator.new()
-	rng.seed = hash(key) + world_seed * 7919
-	var start := absf(center.x) < START_AREA / 2.0 + CHUNK / 2.0 and absf(center.z) < START_AREA / 2.0 + CHUNK / 2.0
-	# Lo demás no se pone dentro del sitio recóndito, pero se sortea igual
-	# para que no cambie de sitio respecto a antes.
-	_avoid = chunk["site"]
-	chunk["trees"] = _plant_trees(detail, center, rng)
-	if not start:
-		_place_boulders(detail, center, rng)
-		_place_resources(chunk, detail, center, rng)
-	_avoid = {}
-	_build_site(chunk, detail, key)
+	var work: Dictionary = chunk["work"]
+	var t := Time.get_ticks_usec()
+	var cells := int(CHUNK / STEP)
+	match int(chunk["stage"]):
+		0:
+			work["mesh"] = _mesh_start(center, STEP, CHUNK)
+			chunk["load_ms"] = 0.0
+			_mesh_heights(work["mesh"], cells / 2)
+		1:
+			_mesh_heights(work["mesh"], cells + 1)
+		2:
+			_mesh_rows(work["mesh"], cells / 3)
+		3:
+			_mesh_rows(work["mesh"], cells * 2 / 3)
+		4:
+			_mesh_rows(work["mesh"], cells)
+		5:
+			var built := _mesh_finish(work["mesh"])
+			work.erase("mesh")
+			work["faces"] = built[1]
+			var detail := Node3D.new()
+			detail.position = center
+			detail.visible = false
+			var mesh_instance := MeshInstance3D.new()
+			mesh_instance.mesh = built[0]
+			mesh_instance.material_override = material
+			# El suelo no proyecta sombra: las sombras son para lo que hay encima.
+			mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			detail.add_child(mesh_instance)
+			add_child(detail)
+			chunk["detail"] = detail
+		6:
+			var collision := CollisionShape3D.new()
+			collision.shape = _concave(work["faces"])
+			collision.position = center
+			body.add_child(collision)
+			chunk["shape"] = collision
+			work.erase("faces")
+			# La misma semilla para cada trozo: al volver, todo está en el mismo sitio.
+			var rng := RandomNumberGenerator.new()
+			rng.seed = hash(key) + world_seed * 7919
+			work["rng"] = rng
+		7:
+			# Lo demás no se pone dentro del sitio recóndito, pero se sortea igual
+			# para que no cambie de sitio respecto a antes.
+			_avoid = chunk["site"]
+			chunk["trees"] = _plant_trees(chunk["detail"], center, work["rng"])
+			_avoid = {}
+		8:
+			if not _is_start(center):
+				_avoid = chunk["site"]
+				_place_boulders(chunk["detail"], center, work["rng"])
+				_avoid = {}
+		9:
+			if not _is_start(center):
+				_avoid = chunk["site"]
+				_place_resources(chunk, chunk["detail"], center, work["rng"])
+				_avoid = {}
+		10:
+			_build_site(chunk, chunk["detail"], key)
+		11:
+			work.clear()
+	chunk["stage"] += 1
+	chunk["load_ms"] += (Time.get_ticks_usec() - t) / 1000.0
+	if chunk["stage"] >= LOAD_STEPS:
+		loaded_chunks += 1
+		last_chunk_ms = chunk["load_ms"]
+		_show(key, _rect_distance(center, CHUNK / 2.0, _last_pos))
+
+
+func _is_start(center: Vector3) -> bool:
+	return absf(center.x) < START_AREA / 2.0 + CHUNK / 2.0 and absf(center.z) < START_AREA / 2.0 + CHUNK / 2.0
 
 
 ## El sitio recóndito de un trozo: {"type", "pos", "rot"} o {} si no hay.
@@ -633,46 +816,117 @@ func _unload(key: Vector2i) -> void:
 	for node in chunk["ice"]:
 		world.remove_ice(node)
 	chunk["ice"] = []
-	chunk["detail"].queue_free()
-	chunk["shape"].queue_free()
+	if chunk["stage"] >= LOAD_STEPS:
+		loaded_chunks -= 1
+	if chunk["detail"] != null:
+		chunk["detail"].queue_free()
+	if chunk["shape"] != null:
+		chunk["shape"].queue_free()
 	chunk["detail"] = null
 	chunk["shape"] = null
 	chunk["trees"] = null
+	chunk["stage"] = 0
+	chunk["work"] = {}
 
 
-## Malla de un trozo con vértices cada "step" metros, en coordenadas
-## relativas a su centro. Devuelve [malla, triángulos para la colisión].
-func _chunk_mesh(center: Vector3, step: float) -> Array:
-	var cells := int(CHUNK / step)
-	var x0 := center.x - CHUNK / 2.0
-	var z0 := center.z - CHUNK / 2.0
+## Malla de un cuadrado de "size" metros con vértices cada "step" metros, en
+## coordenadas relativas a su centro. Devuelve [malla, triángulos para la colisión].
+func _chunk_mesh(center: Vector3, step: float, size := CHUNK) -> Array:
+	var mesh_state := _mesh_start(center, step, size)
+	_mesh_heights(mesh_state, mesh_state["cells"] + 1)
+	_mesh_rows(mesh_state, mesh_state["cells"])
+	return _mesh_finish(mesh_state)
+
+
+## Prepara la malla. Después hay que llamar a _mesh_heights, _mesh_rows y
+## _mesh_finish, que se pueden repartir en varios fotogramas.
+func _mesh_start(center: Vector3, step: float, size: float) -> Dictionary:
+	var cells := int(size / step)
+	var x0 := center.x - size / 2.0
+	var z0 := center.z - size / 2.0
+	var width := cells + 1
 	var heights := PackedFloat32Array()
-	heights.resize((cells + 1) * (cells + 1))
-	for i in cells + 1:
-		for j in cells + 1:
-			heights[i * (cells + 1) + j] = height_at(x0 + i * step, z0 + j * step)
-	var verts := PackedVector3Array()
-	var normals := PackedVector3Array()
-	var colors := PackedColorArray()
+	heights.resize(width * width)
+	var weights := PackedFloat32Array()
+	weights.resize(width * width * 4)
 	var count := cells * cells * 6
 	# Sitio para los triángulos y el faldón de una vez: es más rápido que ir añadiendo.
+	var verts := PackedVector3Array()
 	verts.resize(count + cells * 24)
+	var normals := PackedVector3Array()
 	normals.resize(verts.size())
+	var colors := PackedColorArray()
 	colors.resize(verts.size())
+	return {"center": center, "step": step, "size": size, "cells": cells, "heights": heights, "weights": weights,
+		"verts": verts, "normals": normals, "colors": colors, "n": 0, "row": 0, "hrow": 0}
+
+
+## Calcula las alturas y los pesos de bioma de las filas de vértices que faltan
+## hasta "until" (sin incluirla; hay cells + 1 filas).
+func _mesh_heights(st: Dictionary, until: int) -> void:
+	var cells: int = st["cells"]
+	var step: float = st["step"]
+	var center: Vector3 = st["center"]
+	var x0: float = center.x - float(st["size"]) / 2.0
+	var z0: float = center.z - float(st["size"]) / 2.0
+	var width := cells + 1
+	var heights: PackedFloat32Array = st["heights"]
+	var weights: PackedFloat32Array = st["weights"]
+	for i in range(st["hrow"], until):
+		for j in width:
+			var x: float = x0 + i * step
+			var z: float = z0 + j * step
+			# Los pesos se calculan una vez por vértice y sirven para la altura y el color.
+			var w := _biome_weights(x, z)
+			var at := i * width + j
+			heights[at] = height_at(x, z, w)
+			for k in 4:
+				weights[at * 4 + k] = w[k]
+	st["hrow"] = until
+
+
+## Hace los triángulos de las filas que faltan hasta la fila "until" (sin incluirla).
+func _mesh_rows(st: Dictionary, until: int) -> void:
+	var cells: int = st["cells"]
+	var step: float = st["step"]
+	var half: float = st["size"] / 2.0
+	var heights: PackedFloat32Array = st["heights"]
+	var weights: PackedFloat32Array = st["weights"]
+	var verts: PackedVector3Array = st["verts"]
+	var normals: PackedVector3Array = st["normals"]
+	var colors: PackedColorArray = st["colors"]
+	var center: Vector3 = st["center"]
 	var offset := Vector3(center.x, 0.0, center.z)
-	var n := 0
-	for i in cells:
+	var width := cells + 1
+	var n: int = st["n"]
+	for i in range(st["row"], until):
 		for j in cells:
-			var lx := -CHUNK / 2.0 + i * step
-			var lz := -CHUNK / 2.0 + j * step
-			var a := Vector3(lx, heights[i * (cells + 1) + j], lz)
-			var b := Vector3(lx + step, heights[(i + 1) * (cells + 1) + j], lz)
-			var c := Vector3(lx, heights[i * (cells + 1) + j + 1], lz + step)
-			var d := Vector3(lx + step, heights[(i + 1) * (cells + 1) + j + 1], lz + step)
+			var lx := -half + i * step
+			var lz := -half + j * step
+			var ia := i * width + j
+			var ib := ia + width
+			var a := Vector3(lx, heights[ia], lz)
+			var b := Vector3(lx + step, heights[ib], lz)
+			var c := Vector3(lx, heights[ia + 1], lz + step)
+			var d := Vector3(lx + step, heights[ib + 1], lz + step)
 			# Cada cuadro se parte en (a, b, c) y (b, d, c), como en surface_height.
-			n = _triangle(verts, normals, colors, n, a, b, c, offset)
-			n = _triangle(verts, normals, colors, n, b, d, c, offset)
-	var faces := verts.slice(0, count)
+			n = _triangle(verts, normals, colors, n, a, b, c, offset, weights, ia, ib, ia + 1)
+			n = _triangle(verts, normals, colors, n, b, d, c, offset, weights, ib, ib + 1, ia + 1)
+	st["n"] = n
+	st["row"] = until
+
+
+## Cierra la malla: faldón y superficie. Devuelve [malla, triángulos para la colisión].
+func _mesh_finish(st: Dictionary) -> Array:
+	var cells: int = st["cells"]
+	var step: float = st["step"]
+	var half: float = st["size"] / 2.0
+	var heights: PackedFloat32Array = st["heights"]
+	var verts: PackedVector3Array = st["verts"]
+	var normals: PackedVector3Array = st["normals"]
+	var colors: PackedColorArray = st["colors"]
+	var n: int = st["n"]
+	var faces := verts.slice(0, cells * cells * 6)
 	# Faldón: una tira vertical bajo cada borde que tapa el hueco con el trozo
 	# vecino cuando este tiene otro nivel de detalle.
 	for side in 4:
@@ -682,20 +936,20 @@ func _chunk_mesh(center: Vector3, step: float) -> Array:
 			var out: Vector3
 			match side:
 				0:
-					p = Vector3(-CHUNK / 2.0, heights[k], -CHUNK / 2.0 + k * step)
-					q = Vector3(-CHUNK / 2.0, heights[k + 1], -CHUNK / 2.0 + (k + 1) * step)
+					p = Vector3(-half, heights[k], -half + k * step)
+					q = Vector3(-half, heights[k + 1], -half + (k + 1) * step)
 					out = Vector3.LEFT
 				1:
-					p = Vector3(CHUNK / 2.0, heights[cells * (cells + 1) + k], -CHUNK / 2.0 + k * step)
-					q = Vector3(CHUNK / 2.0, heights[cells * (cells + 1) + k + 1], -CHUNK / 2.0 + (k + 1) * step)
+					p = Vector3(half, heights[cells * (cells + 1) + k], -half + k * step)
+					q = Vector3(half, heights[cells * (cells + 1) + k + 1], -half + (k + 1) * step)
 					out = Vector3.RIGHT
 				2:
-					p = Vector3(-CHUNK / 2.0 + k * step, heights[k * (cells + 1)], -CHUNK / 2.0)
-					q = Vector3(-CHUNK / 2.0 + (k + 1) * step, heights[(k + 1) * (cells + 1)], -CHUNK / 2.0)
+					p = Vector3(-half + k * step, heights[k * (cells + 1)], -half)
+					q = Vector3(-half + (k + 1) * step, heights[(k + 1) * (cells + 1)], -half)
 					out = Vector3.FORWARD
 				_:
-					p = Vector3(-CHUNK / 2.0 + k * step, heights[k * (cells + 1) + cells], CHUNK / 2.0)
-					q = Vector3(-CHUNK / 2.0 + (k + 1) * step, heights[(k + 1) * (cells + 1) + cells], CHUNK / 2.0)
+					p = Vector3(-half + k * step, heights[k * (cells + 1) + cells], half)
+					q = Vector3(-half + (k + 1) * step, heights[(k + 1) * (cells + 1) + cells], half)
 					out = Vector3.BACK
 			var pd := p + Vector3.DOWN * SKIRT
 			var qd := q + Vector3.DOWN * SKIRT
@@ -715,9 +969,11 @@ func _chunk_mesh(center: Vector3, step: float) -> Array:
 
 
 ## Escribe el triángulo en la posición n de las listas y devuelve la siguiente.
-func _triangle(verts: PackedVector3Array, normals: PackedVector3Array, colors: PackedColorArray, n: int, a: Vector3, b: Vector3, c: Vector3, offset: Vector3) -> int:
+## ia, ib e ic son los índices de sus vértices en "weights" (pesos de bioma).
+func _triangle(verts: PackedVector3Array, normals: PackedVector3Array, colors: PackedColorArray, n: int, a: Vector3, b: Vector3, c: Vector3, offset: Vector3, weights: PackedFloat32Array, ia: int, ib: int, ic: int) -> int:
 	var normal := (c - a).cross(b - a).normalized()
-	var color := _shade(a + offset, b + offset, c + offset, normal)
+	var mid := weights_mean(weights, ia, ib, ic)
+	var color := _shade(a + offset, b + offset, c + offset, normal, mid)
 	verts[n] = a
 	verts[n + 1] = b
 	verts[n + 2] = c
@@ -727,13 +983,20 @@ func _triangle(verts: PackedVector3Array, normals: PackedVector3Array, colors: P
 	return n + 3
 
 
+## Media de los pesos de bioma de tres vértices.
+static func weights_mean(weights: PackedFloat32Array, ia: int, ib: int, ic: int) -> Array:
+	var out := []
+	for k in 4:
+		out.append((weights[ia * 4 + k] + weights[ib * 4 + k] + weights[ic * 4 + k]) / 3.0)
+	return out
+
+
 ## Color de un triángulo. Suelo (alfa 1): gris más oscuro en pendiente y en los
 ## valles, que se tiñe según la etapa. Roca y nieve (alfa 0): color propio.
-func _shade(a: Vector3, b: Vector3, c: Vector3, normal: Vector3) -> Color:
+func _shade(a: Vector3, b: Vector3, c: Vector3, normal: Vector3, weights: Array) -> Color:
 	var mid := (a + b + c) / 3.0
 	var flat := absf(normal.y)
 	var jitter := _hash(mid.x, mid.z) * 0.1 - 0.05
-	var weights := _biome_weights(mid.x, mid.z)
 	if mid.y > SNOW_HEIGHT and flat > 0.6:
 		var s := 0.9 + jitter
 		return Color(s, s + 0.02, s + 0.06, 0.0)
