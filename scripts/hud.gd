@@ -1016,19 +1016,22 @@ func _menu_cell(id: String, section: String) -> Button:
 	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	icon.texture = icons.textures.get(id)
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	if button.disabled and not owned:
-		icon.modulate = Color(1, 1, 1, 0.45)
+	# Lo que no se puede hacer sale difuminado y los componentes que faltan,
+	# en rojo.
+	var blurred: bool = button.disabled and not owned
+	if blurred:
+		icon.modulate = Color(1, 1, 1, 0.3)
 	box.add_child(icon)
 	var name_label := _small_label(recipe["name"], 12)
+	if blurred:
+		name_label.modulate = Color(1, 1, 1, 0.5)
 	box.add_child(name_label)
-	var cost_text: String = Game.cost_text(recipe["cost"])
-	var cost_color := Color(0.75, 0.75, 0.75)
 	if owned:
-		cost_text = "Ya lo tienes"
-		cost_color = Color(0.55, 0.9, 0.55)
-	var cost_label := _small_label(cost_text, 11)
-	cost_label.add_theme_color_override("font_color", cost_color)
-	box.add_child(cost_label)
+		var owned_label := _small_label("Ya lo tienes", 11)
+		owned_label.add_theme_color_override("font_color", Color(0.55, 0.9, 0.55))
+		box.add_child(owned_label)
+	else:
+		box.add_child(_cost_label(recipe["cost"], blurred))
 	var count := int(Game.inventory.get(id, 0))
 	if recipe["kind"] == "consumable" and count > 0:
 		# Cuántas lleva ya, en la esquina de arriba a la derecha.
@@ -1042,6 +1045,30 @@ func _menu_cell(id: String, section: String) -> Button:
 		count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		button.add_child(count_label)
 	return button
+
+
+## Coste de una receta: cada componente en su color, en rojo los que faltan.
+func _cost_label(cost: Dictionary, blurred: bool) -> RichTextLabel:
+	var parts := PackedStringArray()
+	for res in cost:
+		var text := "%d %s" % [cost[res], String(Game.RESOURCE_NAMES[res]).to_lower()]
+		if int(Game.inventory.get(res, 0)) < int(cost[res]):
+			text = "[color=#ff5a50]%s[/color]" % text
+		parts.append(text)
+	var label := RichTextLabel.new()
+	label.bbcode_enabled = true
+	label.fit_content = true
+	label.scroll_active = false
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.custom_minimum_size.x = CELL_SIZE.x - 8
+	label.add_theme_font_size_override("normal_font_size", 11)
+	label.add_theme_color_override("default_color", Color(0.75, 0.75, 0.75))
+	label.text = "[center]%s[/center]" % " + ".join(parts)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if blurred:
+		# Los que faltan siguen viéndose bien; solo se apaga el resto.
+		label.modulate = Color(1, 1, 1, 0.85)
+	return label
 
 
 ## Las herramientas se fabrican una sola vez.

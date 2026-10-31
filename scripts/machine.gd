@@ -33,6 +33,8 @@ var _growth := 1.0
 var _size := 1.0
 # Insectos del criadero: revolotean alrededor de las flores.
 var _insects: Array[Node3D] = []
+# Lo que sube del suelo una pieza colgada de la pared (almacén, fabricador).
+var _hang := 0.0
 # Fabricador: el brazo de impresión que va y viene mientras se fabrica y la
 # luz de la pantalla y de la bandeja.
 var _arm: Node3D
@@ -343,38 +345,42 @@ func setup(machine_kind: String) -> void:
 			shape.size = Vector3(0.8, 1.9, 0.6)
 			_add_locker_details()
 		"almacen":
-			# Armario de pared con seis cajones.
+			# Armarito colgado de la pared, a la altura de la cara, con cuatro cajones.
+			_hang = 0.95
 			var wall_cabinet := BoxMesh.new()
-			wall_cabinet.size = Vector3(1.4, 1.9, 0.4)
+			wall_cabinet.size = Vector3(1.1, 0.8, 0.3)
 			mesh_instance.mesh = wall_cabinet
-			mesh_instance.position.y = 0.95
+			mesh_instance.position.y = _hang + 0.4
 			material.albedo_color = Color(0.5, 0.55, 0.6)
 			material.metallic = 0.4
 			material.roughness = 0.5
-			shape.size = Vector3(1.4, 1.9, 0.4)
+			shape.size = Vector3(1.1, 0.8, 0.3)
 			var drawer := StandardMaterial3D.new()
 			drawer.albedo_color = Color(0.36, 0.4, 0.45)
 			var handle := StandardMaterial3D.new()
 			handle.albedo_color = Color(0.95, 0.55, 0.15)
 			for column in [-1.0, 1.0]:
-				for row in 3:
-					var y := 0.45 + row * 0.62
-					_detail(Vector3(0.62, 0.52, 0.03), Vector3(column * 0.34, y, -0.2), drawer)
-					_detail(Vector3(0.24, 0.04, 0.04), Vector3(column * 0.34, y + 0.14, -0.23), handle)
-			_detail(Vector3(1.44, 0.08, 0.44), Vector3(0, 0.04, 0), handle)
+				for row in 2:
+					var y := _hang + 0.2 + row * 0.4
+					_detail(Vector3(0.48, 0.34, 0.03), Vector3(column * 0.26, y, -0.15), drawer)
+					_detail(Vector3(0.2, 0.035, 0.04), Vector3(column * 0.26, y + 0.1, -0.17), handle)
+			_detail(Vector3(1.14, 0.05, 0.34), Vector3(0, _hang + 0.82, 0), handle)
 		"fabricador":
-			# Mesa con una bandeja luminosa, un pórtico con el brazo de
-			# impresión encima y una pantalla detrás (+Z). El frente es -Z.
-			var table := BoxMesh.new()
-			table.size = Vector3(1.6, 0.9, 0.8)
-			mesh_instance.mesh = table
-			mesh_instance.position.y = 0.45
-			material.albedo_color = Color(0.5, 0.54, 0.6)
+			# Herramienta fijada a la pared: una placa con pantalla, una repisa
+			# con una bandeja luminosa y un brazo de impresión sobre un
+			# raíl. Una escuadra baja hasta el suelo para que no flote.
+			# La pared está detrás (+Z); el frente es -Z.
+			_hang = 1.0
+			var plate := BoxMesh.new()
+			plate.size = Vector3(1.1, 0.9, 0.06)
+			mesh_instance.mesh = plate
+			mesh_instance.position = Vector3(0, _hang + 0.45, 0.2)
+			material.albedo_color = Color(0.3, 0.33, 0.37)
 			material.metallic = 0.4
 			material.roughness = 0.5
-			shape.size = Vector3(1.6, 1.9, 0.8)
+			shape.size = Vector3(1.1, 0.9, 0.45)
 			var steel := StandardMaterial3D.new()
-			steel.albedo_color = Color(0.3, 0.33, 0.37)
+			steel.albedo_color = Color(0.5, 0.54, 0.6)
 			steel.metallic = 0.4
 			var accent := StandardMaterial3D.new()
 			accent.albedo_color = Color(0.95, 0.55, 0.15)
@@ -383,18 +389,21 @@ func setup(machine_kind: String) -> void:
 			_fab_glow.emission_enabled = true
 			_fab_glow.emission = Color(0.2, 0.7, 1.0)
 			_fab_glow.emission_energy_multiplier = 0.6
-			_detail(Vector3(1.5, 1.0, 0.08), Vector3(0, 1.4, 0.36), steel)
-			_detail(Vector3(1.2, 0.62, 0.02), Vector3(0, 1.42, 0.31), _fab_glow)
-			_detail(Vector3(0.7, 0.03, 0.45), Vector3(0, 0.91, -0.02), _fab_glow)
-			_detail(Vector3(1.64, 0.08, 0.84), Vector3(0, 0.04, 0), accent)
-			for sx in [-0.7, 0.7]:
-				_detail(Vector3(0.08, 0.5, 0.08), Vector3(sx, 1.15, 0.0), steel)
-			_detail(Vector3(1.5, 0.08, 0.1), Vector3(0, 1.43, 0.0), steel)
+			_detail(Vector3(0.9, 0.3, 0.02), Vector3(0, _hang + 0.68, 0.165), _fab_glow)
+			_detail(Vector3(1.1, 0.06, 0.45), Vector3(0, _hang + 0.03, 0.0), steel)
+			_detail(Vector3(1.14, 0.03, 0.04), Vector3(0, _hang + 0.06, -0.22), accent)
+			_detail(Vector3(0.5, 0.02, 0.28), Vector3(0, _hang + 0.07, 0.0), _fab_glow)
+			for sx in [-0.5, 0.5]:
+				_detail(Vector3(0.04, 0.3, 0.04), Vector3(sx, _hang + 0.21, -0.1), steel)
+			_detail(Vector3(1.04, 0.05, 0.05), Vector3(0, _hang + 0.38, -0.1), steel)
+			# El de la cápsula va atornillado a su pared y no necesita escuadra.
+			if not data.get("fixed", false):
+				_detail(Vector3(0.08, _hang, 0.06), Vector3(0, _hang / 2.0, 0.2), steel)
 			_arm = Node3D.new()
-			_arm.position = Vector3(0, 1.38, 0.0)
+			_arm.position = Vector3(0, _hang + 0.33, -0.1)
 			add_child(_arm)
-			_detail_in(_arm, Vector3(0.16, 0.12, 0.16), Vector3(0, 0, 0), steel)
-			_detail_in(_arm, Vector3(0.05, 0.3, 0.05), Vector3(0, -0.2, 0), accent)
+			_detail_in(_arm, Vector3(0.12, 0.08, 0.12), Vector3(0, 0, 0), steel)
+			_detail_in(_arm, Vector3(0.035, 0.2, 0.035), Vector3(0, -0.12, 0), accent)
 		"musgo":
 			mesh_instance.mesh = _moss_mesh()
 			material.albedo_color = Color(0.3, 0.55, 0.22)
@@ -895,9 +904,9 @@ func setup(machine_kind: String) -> void:
 	add_child(mesh_instance)
 	var collision := CollisionShape3D.new()
 	collision.shape = shape
-	collision.position.y = shape.size.y / 2.0
+	collision.position.y = _hang + shape.size.y / 2.0
 	add_child(collision)
-	footprint = shape.size
+	footprint = shape.size + Vector3(0, _hang, 0)
 	if Game.MACHINES[kind].has("display"):
 		update_screen()
 	_merge_static_parts()
@@ -1189,7 +1198,7 @@ func _animate_fabricator(delta: float) -> void:
 	var busy := Game.fabricating != "" and camera != null and global_position.distance_to(camera.global_position) < 6.0
 	if busy:
 		_arm_time += delta
-		_arm.position.x = sin(_arm_time * 5.0) * 0.55
+		_arm.position.x = sin(_arm_time * 5.0) * 0.4
 		_fab_glow.emission_energy_multiplier = 1.4 + sin(_arm_time * 12.0) * 0.6
 	else:
 		_arm.position.x = move_toward(_arm.position.x, 0.0, delta * 1.5)

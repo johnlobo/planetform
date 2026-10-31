@@ -16,7 +16,12 @@ const DOOR_WALL := 2 # número de pared: 0 es +X y de ahí de 45 en 45° hacia +
 const RAMP_LENGTH := 2.2
 const STORAGE_WALL := 5
 const FABRICATOR_WALL := 7
-const WINDOW_WALL := 6
+# Paredes con ventana (con vista al exterior): las que no tienen puerta ni
+# nada colgado.
+const WINDOW_WALLS := [0, 1, 3, 4, 6]
+const WINDOW_WIDTH := 1.2
+const WINDOW_SILL := 1.0
+const WINDOW_TOP := 1.9
 
 var world: Node3D
 ## Altura del suelo de dentro.
@@ -46,9 +51,9 @@ func setup(world_node: Node3D) -> void:
 	_dark_material.roughness = 0.9
 	_floor_material.albedo_color = Color(0.36, 0.38, 0.42)
 	_floor_material.roughness = 0.7
-	_glass_material.albedo_color = Color(0.25, 0.5, 0.75)
-	_glass_material.emission_enabled = true
-	_glass_material.emission = Color(0.1, 0.3, 0.5)
+	_glass_material.albedo_color = Color(0.5, 0.75, 1.0, 0.12)
+	_glass_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_glass_material.roughness = 0.1
 	_lamp_material.albedo_color = Color(1.0, 0.95, 0.8)
 	_lamp_material.emission_enabled = true
 	_lamp_material.emission = Color(1.0, 0.9, 0.6)
@@ -72,6 +77,8 @@ func setup(world_node: Node3D) -> void:
 	for k in 8:
 		if k == DOOR_WALL:
 			_build_door_wall(k)
+		elif k in WINDOW_WALLS:
+			_build_window_wall(k)
 		else:
 			_wall(k)
 	_build_roof()
@@ -208,6 +215,26 @@ func _wall(k: int) -> void:
 	_wall_box(spot, Vector3(2.6, WALL_HEIGHT, WALL_THICKNESS), Vector3(0, WALL_HEIGHT / 2.0, 0), _hull_material)
 
 
+## Pared con un hueco a la altura de la vista, cerrado con un cristal
+## transparente (que no se puede atravesar) y un marco.
+func _build_window_wall(k: int) -> void:
+	var spot := _wall_spot(k, apothem() + WALL_THICKNESS / 2.0)
+	var side := (2.6 - WINDOW_WIDTH) / 2.0
+	var hole := WINDOW_TOP - WINDOW_SILL
+	_wall_box(spot, Vector3(2.6, WINDOW_SILL, WALL_THICKNESS), Vector3(0, WINDOW_SILL / 2.0, 0), _hull_material)
+	_wall_box(spot, Vector3(2.6, WALL_HEIGHT - WINDOW_TOP, WALL_THICKNESS), Vector3(0, (WALL_HEIGHT + WINDOW_TOP) / 2.0, 0), _hull_material)
+	for sx in [-1.0, 1.0]:
+		_wall_box(spot, Vector3(side, hole, WALL_THICKNESS), Vector3(sx * (WINDOW_WIDTH + side) / 2.0, WINDOW_SILL + hole / 2.0, 0), _hull_material)
+	# El cristal: solo se nota por un leve tinte.
+	_wall_box(spot, Vector3(WINDOW_WIDTH, hole, 0.04), Vector3(0, WINDOW_SILL + hole / 2.0, 0), _glass_material)
+	var frame := StandardMaterial3D.new()
+	frame.albedo_color = Color(0.95, 0.55, 0.15)
+	for sx in [-1.0, 1.0]:
+		_visual(spot, Vector3(0.06, hole + 0.06, WALL_THICKNESS + 0.04), Vector3(sx * (WINDOW_WIDTH / 2.0 + 0.03), WINDOW_SILL + hole / 2.0, 0), frame)
+	for y in [WINDOW_SILL - 0.03, WINDOW_TOP + 0.03]:
+		_visual(spot, Vector3(WINDOW_WIDTH + 0.12, 0.06, WALL_THICKNESS + 0.04), Vector3(0, y, 0), frame)
+
+
 func _build_door_wall(k: int) -> void:
 	var spot := _wall_spot(k, apothem() + WALL_THICKNESS / 2.0)
 	var side := (2.6 - DOOR_WIDTH) / 2.0
@@ -268,36 +295,29 @@ func _build_ramp() -> void:
 	_hull.add_child(shape)
 
 
-## Patas de aterrizaje, marcas de quemado y ojo de buey.
+## Patas de aterrizaje y marcas de quemado. Las patas se agarran al casco
+## por fuera, en cada esquina, y bajan hacia fuera: no tocan ni la pared ni
+## la plataforma.
 func _build_details() -> void:
+	var corner_radius := (apothem() + WALL_THICKNESS) / cos(deg_to_rad(22.5))
 	for k in 4:
 		var angle := deg_to_rad(22.5 + 45.0 + 90.0 * k)
-		var top := Vector3(cos(angle) * (apothem() + 0.1), 1.3, sin(angle) * (apothem() + 0.1))
-		var ground_x := cos(angle) * (RADIUS + 1.3)
-		var ground_z := sin(angle) * (RADIUS + 1.3)
-		var ground: float = world.surface_height(ground_x + global_position.x, ground_z + global_position.z) - floor_y
-		var bottom := Vector3(ground_x, ground + 0.05, ground_z)
-		_strut(top, bottom, 0.16, _dark_material)
-		_box(Vector3(0.9, 0.1, 0.9), bottom + Vector3(0, 0.0, 0), _hull_material).rotation.y = angle
-	# Marcas de quemado en el casco, más abajo que arriba.
+		var dir := Vector3(cos(angle), 0, sin(angle))
+		var top := dir * (corner_radius + 0.12) + Vector3(0, 1.5, 0)
+		var ground_xz := dir * (corner_radius + 1.5)
+		var ground: float = world.surface_height(ground_xz.x + global_position.x, ground_xz.z + global_position.z) - floor_y
+		var bottom := Vector3(ground_xz.x, ground + 0.05, ground_xz.z)
+		# Escuadra que une la pata al casco.
+		var bracket := _box(Vector3(0.3, 0.3, 0.3), dir * (corner_radius + 0.02) + Vector3(0, 1.5, 0), _dark_material)
+		bracket.rotation.y = -angle
+		_strut(top, bottom, 0.14, _dark_material)
+		_box(Vector3(0.9, 0.1, 0.9), bottom, _hull_material).rotation.y = -angle
+	# Marcas de quemado en el casco, por debajo de las ventanas.
 	for k in 8:
-		if k == DOOR_WALL or k == WINDOW_WALL:
+		if k == DOOR_WALL:
 			continue
 		var spot := _wall_spot(k, apothem() + WALL_THICKNESS + 0.01)
-		_visual(spot, Vector3(1.2, 0.6, 0.02), Vector3(0.3 * (1 if k % 2 == 0 else -1), 0.45, 0), _dark_material)
-	# Ojo de buey en la pared del fondo: un disco que atraviesa el grosor.
-	var window_spot := _wall_spot(WINDOW_WALL, apothem() + WALL_THICKNESS / 2.0)
-	var window := MeshInstance3D.new()
-	var disc := CylinderMesh.new()
-	disc.top_radius = 0.42
-	disc.bottom_radius = 0.42
-	disc.height = WALL_THICKNESS + 0.06
-	disc.radial_segments = 8
-	disc.rings = 1
-	window.mesh = disc
-	window.material_override = _glass_material
-	window.transform = window_spot * Transform3D(Basis(Vector3.RIGHT, PI / 2.0), Vector3(0, 1.9, 0))
-	add_child(window)
+		_visual(spot, Vector3(1.2, 0.6, 0.02), Vector3(0.3 * (1 if k % 2 == 0 else -1), 0.4, 0), _dark_material)
 
 
 ## Barra entre dos puntos.
@@ -313,8 +333,8 @@ func _strut(a: Vector3, b: Vector3, thickness: float, material: Material) -> voi
 
 ## El fabricador y el almacén de pared, pegados a sus paredes y de cara al centro.
 func _build_inside() -> void:
-	fabricator = _machine("fabricador", FABRICATOR_WALL, 0.45, {"kind": "fabricador", "fixed": true})
-	storage = _machine("almacen", STORAGE_WALL, 0.25, Game.capsule)
+	fabricator = _machine("fabricador", FABRICATOR_WALL, 0.22, {"kind": "fabricador", "fixed": true})
+	storage = _machine("almacen", STORAGE_WALL, 0.15, Game.capsule)
 
 
 func _machine(kind: String, wall: int, depth_from_wall: float, data: Dictionary) -> Machine:
