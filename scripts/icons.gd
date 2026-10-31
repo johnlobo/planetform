@@ -141,6 +141,34 @@ func _item(kind: String) -> Node3D:
 			bit.rotation_degrees.z = 90.0
 			var grip := _part(root, _box(Vector3(0.22, 0.6, 0.24)), dark, Vector3(0.25, -0.1, 0))
 			grip.rotation_degrees.z = -12.0
+		"herramienta_construccion", "herramienta_desmontaje":
+			# El mismo cuerpo que la herramienta de mano, con el cabezal del modo.
+			var casing := _material(Color(0.36, 0.39, 0.44), 0.2)
+			_part(root, _box(Vector3(0.8, 0.45, 0.4)), casing, Vector3(0.1, 0.0, 0))
+			_part(root, _box(Vector3(0.6, 0.12, 0.42)), _material(Color(0.95, 0.55, 0.15), 0.1), Vector3(0.1, 0.27, 0))
+			var grip_part := _part(root, _box(Vector3(0.24, 0.6, 0.3)), casing, Vector3(0.3, -0.45, 0))
+			grip_part.rotation_degrees.z = 18.0
+			if kind == "herramienta_construccion":
+				var glow := _material(Color(0.3, 0.8, 1.0), 0.0)
+				glow.emission_enabled = true
+				glow.emission = Color(0.2, 0.7, 1.0)
+				var ring := TorusMesh.new()
+				ring.inner_radius = 0.16
+				ring.outer_radius = 0.26
+				ring.rings = 8
+				ring.ring_segments = 6
+				var ring_part := _part(root, ring, glow, Vector3(-0.5, 0, 0))
+				ring_part.rotation_degrees.z = 90.0
+				var cube := _part(root, _box(Vector3(0.2, 0.2, 0.2)), glow, Vector3(-0.8, 0.05, 0))
+				cube.rotation_degrees = Vector3(35.0, 45.0, 0.0)
+			else:
+				var red := _material(Color(1.0, 0.25, 0.2), 0.0)
+				red.emission_enabled = true
+				red.emission = Color(0.9, 0.15, 0.1)
+				for sz in [-1.0, 1.0]:
+					var prong := _part(root, _box(Vector3(0.6, 0.1, 0.1)), metal, Vector3(-0.65, 0.0, sz * 0.16))
+					prong.rotation_degrees.y = -sz * 12.0
+				_part(root, _box(Vector3(0.14, 0.12, 0.14)), red, Vector3(-0.55, 0.0, 0))
 		"jetpack":
 			_part(root, _box(Vector3(0.9, 1.0, 0.18)), dark, Vector3(0, 0.1, 0.2))
 			var tank := _material(Color(0.85, 0.85, 0.88), 0.4)

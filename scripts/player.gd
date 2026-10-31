@@ -118,9 +118,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseButton and event.pressed and captured \
 			and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 		# Con la rueda se pasa de un modo al siguiente (al colocar, gira la pieza).
+		# Solo pasa por los modos de las herramientas que se tienen.
 		var step := -1 if event.button_index == MOUSE_BUTTON_WHEEL_UP else 1
-		var i := Game.TOOL_MODES.find(Game.tool_mode)
-		_set_mode(Game.TOOL_MODES[posmod(i + step, Game.TOOL_MODES.size())], false)
+		var modes := Game.owned_modes()
+		var i := modes.find(Game.tool_mode)
+		_set_mode(modes[posmod(i + step, modes.size())], false)
 	elif event.is_action_pressed("tool_recoger"):
 		_set_mode("recoger", false)
 	elif event.is_action_pressed("tool_construir"):
@@ -348,6 +350,10 @@ func _update_steps(delta: float, was_on_floor: bool) -> void:
 ## Cambia el modo de la herramienta. Con open_menu, al pasar a construir se
 ## abre directamente el menú de construcción.
 func _set_mode(mode: String, open_menu: bool) -> void:
+	if not Game.has_mode(mode):
+		var tool_name := "construcción" if mode == "construir" else "desmontaje"
+		Game.message.emit("Aún no tienes la herramienta de %s: fabrícala en el fabricador (E)." % tool_name)
+		return
 	if mode != Game.tool_mode:
 		Sfx.play("clic")
 	Game.set_tool_mode(mode)

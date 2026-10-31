@@ -33,6 +33,13 @@ var _growth := 1.0
 var _size := 1.0
 # Insectos del criadero: revolotean alrededor de las flores.
 var _insects: Array[Node3D] = []
+# Lo que sube del suelo una pieza colgada de la pared (almacén, fabricador).
+var _hang := 0.0
+# Fabricador: el brazo de impresión que va y viene mientras se fabrica y la
+# luz de la pantalla y de la bandeja.
+var _arm: Node3D
+var _fab_glow: StandardMaterial3D
+var _arm_time := 0.0
 # Batería: barra que marca la carga.
 var _battery_bar: Node3D
 var _battery_material: StandardMaterial3D
@@ -337,6 +344,66 @@ func setup(machine_kind: String) -> void:
 			material.roughness = 0.5
 			shape.size = Vector3(0.8, 1.9, 0.6)
 			_add_locker_details()
+		"almacen":
+			# Armarito colgado de la pared, a la altura de la cara, con cuatro cajones.
+			_hang = 0.95
+			var wall_cabinet := BoxMesh.new()
+			wall_cabinet.size = Vector3(1.1, 0.8, 0.3)
+			mesh_instance.mesh = wall_cabinet
+			mesh_instance.position.y = _hang + 0.4
+			material.albedo_color = Color(0.5, 0.55, 0.6)
+			material.metallic = 0.4
+			material.roughness = 0.5
+			shape.size = Vector3(1.1, 0.8, 0.3)
+			var drawer := StandardMaterial3D.new()
+			drawer.albedo_color = Color(0.36, 0.4, 0.45)
+			var handle := StandardMaterial3D.new()
+			handle.albedo_color = Color(0.95, 0.55, 0.15)
+			for column in [-1.0, 1.0]:
+				for row in 2:
+					var y := _hang + 0.2 + row * 0.4
+					_detail(Vector3(0.48, 0.34, 0.03), Vector3(column * 0.26, y, -0.15), drawer)
+					_detail(Vector3(0.2, 0.035, 0.04), Vector3(column * 0.26, y + 0.1, -0.17), handle)
+			_detail(Vector3(1.14, 0.05, 0.34), Vector3(0, _hang + 0.82, 0), handle)
+		"fabricador":
+			# Herramienta fijada a la pared: una placa con pantalla, una repisa
+			# con una bandeja luminosa y un brazo de impresión sobre un
+			# raíl. Una escuadra baja hasta el suelo para que no flote.
+			# La pared está detrás (+Z); el frente es -Z.
+			_hang = 1.0
+			var plate := BoxMesh.new()
+			plate.size = Vector3(1.1, 0.9, 0.06)
+			mesh_instance.mesh = plate
+			mesh_instance.position = Vector3(0, _hang + 0.45, 0.2)
+			material.albedo_color = Color(0.3, 0.33, 0.37)
+			material.metallic = 0.4
+			material.roughness = 0.5
+			shape.size = Vector3(1.1, 0.9, 0.45)
+			var steel := StandardMaterial3D.new()
+			steel.albedo_color = Color(0.5, 0.54, 0.6)
+			steel.metallic = 0.4
+			var accent := StandardMaterial3D.new()
+			accent.albedo_color = Color(0.95, 0.55, 0.15)
+			_fab_glow = StandardMaterial3D.new()
+			_fab_glow.albedo_color = Color(0.4, 0.85, 1.0)
+			_fab_glow.emission_enabled = true
+			_fab_glow.emission = Color(0.2, 0.7, 1.0)
+			_fab_glow.emission_energy_multiplier = 0.6
+			_detail(Vector3(0.9, 0.3, 0.02), Vector3(0, _hang + 0.68, 0.165), _fab_glow)
+			_detail(Vector3(1.1, 0.06, 0.45), Vector3(0, _hang + 0.03, 0.0), steel)
+			_detail(Vector3(1.14, 0.03, 0.04), Vector3(0, _hang + 0.06, -0.22), accent)
+			_detail(Vector3(0.5, 0.02, 0.28), Vector3(0, _hang + 0.07, 0.0), _fab_glow)
+			for sx in [-0.5, 0.5]:
+				_detail(Vector3(0.04, 0.3, 0.04), Vector3(sx, _hang + 0.21, -0.1), steel)
+			_detail(Vector3(1.04, 0.05, 0.05), Vector3(0, _hang + 0.38, -0.1), steel)
+			# El de la cápsula va atornillado a su pared y no necesita escuadra.
+			if not data.get("fixed", false):
+				_detail(Vector3(0.08, _hang, 0.06), Vector3(0, _hang / 2.0, 0.2), steel)
+			_arm = Node3D.new()
+			_arm.position = Vector3(0, _hang + 0.33, -0.1)
+			add_child(_arm)
+			_detail_in(_arm, Vector3(0.12, 0.08, 0.12), Vector3(0, 0, 0), steel)
+			_detail_in(_arm, Vector3(0.035, 0.2, 0.035), Vector3(0, -0.12, 0), accent)
 		"musgo":
 			mesh_instance.mesh = _moss_mesh()
 			material.albedo_color = Color(0.3, 0.55, 0.22)
@@ -837,9 +904,9 @@ func setup(machine_kind: String) -> void:
 	add_child(mesh_instance)
 	var collision := CollisionShape3D.new()
 	collision.shape = shape
-	collision.position.y = shape.size.y / 2.0
+	collision.position.y = _hang + shape.size.y / 2.0
 	add_child(collision)
-	footprint = shape.size
+	footprint = shape.size + Vector3(0, _hang, 0)
 	if Game.MACHINES[kind].has("display"):
 		update_screen()
 	_merge_static_parts()
@@ -848,13 +915,13 @@ func setup(machine_kind: String) -> void:
 ## Junta en pocas mallas las piezas que nunca se mueven ni cambian de brillo;
 ## las que se animan (giran, suben, se encienden, se esconden) se quedan sueltas.
 func _merge_static_parts() -> void:
-	var moving := [_spinner, _rotor, _piston, _battery_bar, _collected, _lamp]
+	var moving := [_spinner, _rotor, _piston, _battery_bar, _collected, _lamp, _arm]
 	moving.append_array(_drones)
 	moving.append_array(_fruits)
 	moving.append_array(_insects)
 	for bar in _bars:
 		moving.append(bar["fill"])
-	var changing := [_charge_light, _battery_material, _lamp_material]
+	var changing := [_charge_light, _battery_material, _lamp_material, _fab_glow]
 	var parts := []
 	for child in get_children():
 		if child is MeshInstance3D and not child in moving and MeshMerge.can_merge(child, changing):
@@ -893,6 +960,12 @@ func _add_locker_details() -> void:
 		for k in 3:
 			_detail(Vector3(0.24, 0.025, 0.02), Vector3(sx * 0.2, 1.65 - k * 0.07, front), dark)
 	_detail(Vector3(0.82, 0.08, 0.62), Vector3(0, 0.12, 0), accent)
+
+
+func _detail_in(parent: Node3D, size: Vector3, pos: Vector3, material: Material) -> MeshInstance3D:
+	var box := BoxMesh.new()
+	box.size = size
+	return _mesh(box, pos, material, parent)
 
 
 func _detail(size: Vector3, pos: Vector3, material: Material) -> MeshInstance3D:
@@ -1040,6 +1113,11 @@ func sprout() -> void:
 		scale = Vector3.ONE * 0.3 * _size
 
 
+## Parte de la cápsula: no se puede desmontar.
+func is_fixed() -> bool:
+	return bool(data.get("fixed", false)) or bool(Game.MACHINES[kind].get("fixed", false))
+
+
 func is_storage() -> bool:
 	return Game.MACHINES[kind].has("storage")
 
@@ -1094,6 +1172,8 @@ func _process(delta: float) -> void:
 		var charge := Game.battery_percent() / 100.0
 		_battery_bar.scale.x = maxf(0.02, charge)
 		_battery_bar.position.x = -0.5 * (1.0 - charge)
+	if _arm:
+		_animate_fabricator(delta)
 	if _lamp:
 		var on := Game.is_night() and not data.is_empty()
 		_lamp.visible = on
@@ -1110,6 +1190,19 @@ func _process(delta: float) -> void:
 		_produce(delta)
 	if not _insects.is_empty():
 		_move_insects()
+
+
+## Mientras se fabrica el brazo va de lado a lado y las luces pulsan.
+func _animate_fabricator(delta: float) -> void:
+	var camera := get_viewport().get_camera_3d()
+	var busy := Game.fabricating != "" and camera != null and global_position.distance_to(camera.global_position) < 6.0
+	if busy:
+		_arm_time += delta
+		_arm.position.x = sin(_arm_time * 5.0) * 0.4
+		_fab_glow.emission_energy_multiplier = 1.4 + sin(_arm_time * 12.0) * 0.6
+	else:
+		_arm.position.x = move_toward(_arm.position.x, 0.0, delta * 1.5)
+		_fab_glow.emission_energy_multiplier = 0.6
 
 
 ## Los insectos dan vueltas en órbitas distintas; sin energía se posan.
@@ -1158,11 +1251,14 @@ func produced_resource() -> String:
 ## La cama, el terminal y el telepuerto se usan con E o con clic.
 func is_usable() -> bool:
 	var machine: Dictionary = Game.MACHINES[kind]
-	return machine.get("bed", false) or machine.get("research", false) or machine.get("teleport", false)
+	return machine.get("bed", false) or machine.get("research", false) or machine.get("teleport", false) \
+			or machine.get("fabricator", false)
 
 
 func use() -> void:
-	if Game.MACHINES[kind].get("research", false):
+	if Game.MACHINES[kind].get("fabricator", false):
+		Game.fabricator_requested.emit()
+	elif Game.MACHINES[kind].get("research", false):
 		Game.research_requested.emit()
 	elif Game.MACHINES[kind].get("teleport", false):
 		_teleport()
@@ -1196,6 +1292,8 @@ func get_hint() -> String:
 	var recipe_name: String = Game.RECIPES[kind]["name"]
 	if kind == "extractor":
 		recipe_name = "Extractor de %s" % String(Game.RESOURCE_NAMES[produced_resource()]).to_lower()
+	if Game.MACHINES[kind].get("fabricator", false):
+		return "%s · E o clic para fabricar" % recipe_name
 	if Game.MACHINES[kind].get("research", false):
 		return "%s · %d chips · E o clic para investigar" % [recipe_name, int(Game.inventory.get("chip", 0))]
 	if Game.MACHINES[kind].get("satellite", false):

@@ -12,6 +12,12 @@ const ICON_SIZE := 56
 const CELL_SIZE := Vector2(ICON_SIZE + 50, ICON_SIZE + 66)
 const MENU_COLUMNS := 11
 const SECTION_NAMES := {"fabricar": "Fabricar", "construccion": "Construcción", "tecnologia": "Tecnología", "terraformacion": "Terraformación"}
+# El menú de construir (herramienta de construcción) y el panel del fabricador
+# comparten la rejilla; cada uno enseña sus secciones.
+const BUILD_SECTIONS := ["construccion", "tecnologia", "terraformacion"]
+const FAB_SECTIONS := ["fabricar"]
+const EQUIP_SIZE := Vector2(310, 400)
+const EQUIP_SLOT := 64.0
 const INVENTORY_COLUMNS := 6
 const SLOT_SIZE := Vector2(76, 76)
 const MODE_COLORS := {
@@ -41,12 +47,26 @@ var menu_sections: VBoxContainer
 var menu_scroll: ScrollContainer
 # Título de cada sección del menú, para desplazarse hasta ella.
 var _section_headers := {}
+var menu_heading: Label
+var menu_close_hint: Label
+var fab_box: VBoxContainer
+var fab_label: Label
+var fab_bar: ProgressBar
+var fab_icon: TextureRect
+var _menu_mode := "build"
+var _fab_time := 0.0
+# true cuando ya se ha dado el primer aviso de la cápsula.
+var _intro_shown := false
 var inventory_panel: PanelContainer
 var inventory_title: Label
 var inventory_bar: ProgressBar
 var inventory_grid: GridContainer
 var inventory_detail: VBoxContainer
-var inventory_equipment: HBoxContainer
+var equip_frame: Control
+var equip_body: Control
+# Posición de cada casilla del equipo en equip_frame, y a qué parte del
+# astronauta apunta su línea.
+var _equip_slots := []
 # Objeto elegido en el inventario, el que pidió tirar todo (a la espera de
 # confirmar) y si se ordena por nombre en vez de por tipo.
 var _inv_selected := ""
@@ -120,7 +140,7 @@ func _ready() -> void:
 	help.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	help.offset_left = 16
 	help.offset_bottom = -16
-	help.text = "WASD mover · Espacio saltar · Clic usar herramienta (mantén para minar) · 1 2 3 o rueda cambiar modo\nTab fabricar y construir · I inventario · E usar, abrir o subir al róver · L linterna · R girar · Esc cerrar o pausa"
+	help.text = "WASD mover · Espacio saltar · Clic usar herramienta (mantén para minar) · 1 2 3 o rueda cambiar modo\nE usar (fabricador, almacén, cama…) o subir al róver · I inventario · L linterna · R girar · Esc cerrar o pausa"
 
 	_build_mode_bar()
 
@@ -198,6 +218,8 @@ func _ready() -> void:
 	Game.player_died.connect(_on_player_died)
 	Game.tool_changed.connect(_on_tool_changed)
 	Game.build_menu_requested.connect(_on_build_menu_requested)
+	Game.fabricator_requested.connect(_on_fabricator_requested)
+	Game.fabrication_changed.connect(_on_fabrication_changed)
 	Game.driving_changed.connect(func(driving: bool) -> void: _driving = driving)
 	Game.locker_requested.connect(_on_locker_requested)
 	Game.research_requested.connect(_on_research_requested)
@@ -205,11 +227,15 @@ func _ready() -> void:
 	if Game.pending_notice != "":
 		_show_message(Game.pending_notice)
 		Game.pending_notice = ""
+	# Sin pantalla de título (tras "Nueva partida") el aviso sale ya; si no,
+	# al cerrarse el menú.
+	if Game.skip_title:
+		_show_intro()
 
 
 func _input(event: InputEvent) -> void:
-	# Se usa _input y no _unhandled_input porque los botones del menú
-	# consumen la tecla Tab para mover el foco.
+	# Se usa _input y no _unhandled_input para cerrar los paneles aunque un
+	# botón tenga el foco.
 	if Game.dead:
 		# Durante la muerte solo cuenta Enter, y solo cuando ya sale el game over.
 		if _waiting_respawn and event.is_action_pressed("ui_accept"):
@@ -217,15 +243,13 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif _open_panel:
 		var right_click: bool = event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT
-		if event.is_action_pressed("craft") or event.is_action_pressed("pause") \
+		var is_fabricator := _open_panel == menu_panel and _menu_mode == "fabricate"
+		if event.is_action_pressed("pause") \
 				or (event.is_action_pressed("map") and _open_panel == map_panel) \
 				or (event.is_action_pressed("inventory") and _open_panel == inventory_panel) \
-			or (event.is_action_pressed("interact") and _open_panel in [locker_panel, research_panel]) or right_click:
+				or (event.is_action_pressed("interact") and (_open_panel in [locker_panel, research_panel] or is_fabricator)) or right_click:
 			_close_panel()
 			get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("craft") and not get_tree().paused:
-		_show_menu("")
-		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("inventory") and not get_tree().paused and not Game.placing:
 		_show_panel(inventory_panel)
 		get_viewport().set_input_as_handled()
@@ -242,6 +266,15 @@ func on_menu_opened() -> void:
 
 func on_menu_closed() -> void:
 	visible = true
+	_show_intro()
+
+
+## Primer aviso de la partida: el almacén de pared de la cápsula.
+func _show_intro() -> void:
+	if _intro_shown or Game.tutorial != 1:
+		return
+	_intro_shown = true
+	_show_message("Has aterrizado. Abre el almacén de pared (E) para coger tus provisiones.")
 
 
 func _process(delta: float) -> void:
@@ -260,6 +293,8 @@ func _process(delta: float) -> void:
 	hint_label.text = "" if Game.ui_open else Game.hint
 	mine_bar.visible = Game.mine_progress >= 0.0 and not Game.ui_open
 	mine_bar.value = maxf(Game.mine_progress, 0.0)
+	if _open_panel == menu_panel and _menu_mode == "fabricate":
+		_update_fabrication_bar(delta)
 	if _open_panel == locker_panel and not is_instance_valid(_locker):
 		_close_panel()
 	elif _open_panel == locker_panel and _locker.stored_total() != _locker_total:
@@ -302,15 +337,13 @@ func _build_menu_panel() -> void:
 	var header := HBoxContainer.new()
 	parts[1].add_child(header)
 	parts[1].move_child(header, 0)
-	var heading := Label.new()
-	heading.text = "Fabricar y construir"
-	heading.add_theme_font_size_override("font_size", 18)
-	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	header.add_child(heading)
-	var close_hint := Label.new()
-	close_hint.text = "Tab, clic derecho o Esc para cerrar"
-	close_hint.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
-	header.add_child(close_hint)
+	menu_heading = Label.new()
+	menu_heading.add_theme_font_size_override("font_size", 18)
+	menu_heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(menu_heading)
+	menu_close_hint = Label.new()
+	menu_close_hint.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
+	header.add_child(menu_close_hint)
 	menu_sections = VBoxContainer.new()
 	menu_sections.add_theme_constant_override("separation", 6)
 	# Si no cabe todo en la pantalla, se desplaza con la rueda.
@@ -318,6 +351,40 @@ func _build_menu_panel() -> void:
 	menu_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	menu_scroll.add_child(menu_sections)
 	parts[1].add_child(menu_scroll)
+	# Solo en el fabricador: qué se está haciendo y cuánto falta.
+	fab_box = VBoxContainer.new()
+	fab_box.add_theme_constant_override("separation", 6)
+	fab_box.add_child(HSeparator.new())
+	var fab_row := HBoxContainer.new()
+	fab_row.add_theme_constant_override("separation", 14)
+	fab_box.add_child(fab_row)
+	var icon_slot := Control.new()
+	icon_slot.custom_minimum_size = Vector2(76, 76)
+	fab_row.add_child(icon_slot)
+	fab_icon = TextureRect.new()
+	fab_icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	fab_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	fab_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	fab_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon_slot.add_child(fab_icon)
+	var fab_text := VBoxContainer.new()
+	fab_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	fab_text.alignment = BoxContainer.ALIGNMENT_CENTER
+	fab_row.add_child(fab_text)
+	fab_label = Label.new()
+	fab_label.add_theme_font_size_override("font_size", 16)
+	fab_text.add_child(fab_label)
+	fab_bar = ProgressBar.new()
+	fab_bar.custom_minimum_size = Vector2(0, 18)
+	fab_bar.max_value = 1.0
+	fab_bar.show_percentage = false
+	fab_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var fab_fill := StyleBoxFlat.new()
+	fab_fill.bg_color = MODE_COLORS["construir"]
+	fab_bar.add_theme_stylebox_override("fill", fab_fill)
+	fab_text.add_child(fab_bar)
+	fab_box.visible = false
+	parts[1].add_child(fab_box)
 
 
 ## Los tres modos de la herramienta abajo en el centro; el activo resalta.
@@ -346,6 +413,8 @@ func _on_tool_changed(mode: String) -> void:
 	crosshair.add_theme_color_override("font_color", MODE_COLORS[mode])
 	for id in mode_labels:
 		var label: Label = mode_labels[id]
+		# Solo salen los modos de las herramientas que se tienen.
+		label.visible = Game.has_mode(id)
 		var active: bool = id == mode
 		label.add_theme_font_size_override("font_size", 22 if active else 16)
 		label.add_theme_color_override("font_color", MODE_COLORS[id] if active else Color(0.75, 0.75, 0.75, 0.7))
@@ -402,11 +471,19 @@ func _build_inventory_panel() -> void:
 	inventory_detail.custom_minimum_size.x = 260
 	inventory_detail.add_theme_constant_override("separation", 8)
 	columns.add_child(inventory_detail)
-	parts[1].add_child(HSeparator.new())
-	parts[1].add_child(_small_heading("Equipo"))
-	inventory_equipment = HBoxContainer.new()
-	inventory_equipment.add_theme_constant_override("separation", 14)
-	parts[1].add_child(inventory_equipment)
+	# A la derecha, el equipo montado sobre la silueta de un astronauta.
+	columns.add_child(VSeparator.new())
+	var equip_column := VBoxContainer.new()
+	equip_column.add_child(_small_heading("Equipo"))
+	equip_frame = Control.new()
+	equip_frame.custom_minimum_size = EQUIP_SIZE
+	equip_body = Control.new()
+	equip_body.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	equip_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	equip_body.draw.connect(_draw_astronaut)
+	equip_frame.add_child(equip_body)
+	equip_column.add_child(equip_frame)
+	columns.add_child(equip_column)
 
 
 func _refresh_inventory_panel() -> void:
@@ -590,51 +667,111 @@ func _item_info(id: String) -> String:
 	return "Material de construcción y fabricación."
 
 
-## Lo que se lleva puesto, que no ocupa casillas.
-func _refresh_equipment() -> void:
-	for child in inventory_equipment.get_children():
-		inventory_equipment.remove_child(child)
-		child.queue_free()
+## Casillas del equipo: id, nombre corto, posición en el marco y a qué
+## parte del astronauta apunta su línea.
+func _equipment_slots() -> Array:
 	var drill := Game.drill()
-	_equipment_cell(String(drill["id"]) if drill["id"] != "" else "taladro", drill["name"],
-			"Vacía un depósito en %.2f s y recoges x%d" % [drill["time"], drill["yield"]])
 	var pack: Dictionary = Game.BACKPACKS[Game.backpack_level]
-	_equipment_cell(String(pack["id"]) if pack["id"] != "" else "bolsa", pack["name"], "%d casillas" % pack["slots"])
-	if Game.has_tank:
-		_equipment_cell("tanque", "Tanque de oxígeno", "Reserva de %d" % int(Game.TANK_O2_MAX))
-	if Game.has_jetpack:
-		_equipment_cell("jetpack", "Propulsores", "Espacio en el aire para volar")
-	if Game.has_flashlight:
-		var button := _equipment_cell("linterna", "Linterna (L)", "Para ver en las cuevas", true)
-		button.text = "Apagar" if Game.flashlight_on else "Encender"
+	var left := 8.0
+	var right := EQUIP_SIZE.x - EQUIP_SLOT - 8.0
+	return [
+		{"icon": "linterna", "name": "Linterna", "owned": Game.has_flashlight, "pos": Vector2(right, 14),
+				"to": Vector2(172, 62), "effect": "L para encenderla o apagarla; en las cuevas no se ve sin ella",
+				"caption": ("Encendida" if Game.flashlight_on else "Apagada") if Game.has_flashlight else "Linterna", "toggle": true},
+		{"icon": String(drill["id"]) if drill["id"] != "" else "taladro", "name": "Recolector", "owned": true,
+				"pos": Vector2(right, 100), "to": Vector2(212, 150),
+				"effect": "%s: vacía un depósito en %.2f s y recoges x%d" % [drill["name"], drill["time"], drill["yield"]],
+				"caption": drill["name"]},
+		{"icon": "herramienta_construccion", "name": "Construcción", "owned": Game.has_build_tool, "pos": Vector2(right, 186),
+				"to": Vector2(110, 262), "effect": "Modo Construir (2)", "caption": "Construcción"},
+		{"icon": "herramienta_desmontaje", "name": "Desmontaje", "owned": Game.has_dismantle_tool, "pos": Vector2(right, 272),
+				"to": Vector2(200, 262), "effect": "Modo Desmontar (3)", "caption": "Desmontaje"},
+		{"icon": String(pack["id"]) if pack["id"] != "" else "bolsa", "name": pack["name"], "owned": true,
+				"pos": Vector2(left, 100), "to": Vector2(118, 150), "effect": "%d casillas" % pack["slots"], "caption": pack["name"]},
+		{"icon": "tanque", "name": "Tanque de oxígeno", "owned": Game.has_tank, "pos": Vector2(left, 186),
+				"to": Vector2(118, 185), "effect": "Reserva de oxígeno de %d" % int(Game.TANK_O2_MAX), "caption": "Tanque"},
+		{"icon": "jetpack", "name": "Propulsores", "owned": Game.has_jetpack, "pos": Vector2(left, 272),
+				"to": Vector2(118, 215), "effect": "Espacio en el aire para volar un poco", "caption": "Propulsores"},
+	]
+
+
+## Silueta del astronauta con una línea hasta cada casilla del equipo.
+func _draw_astronaut() -> void:
+	var suit := Color(0.2, 0.23, 0.29)
+	var edge := Color(0.55, 0.62, 0.72)
+	var visor := Color(0.3, 0.55, 0.8)
+	var line := Color(0.55, 0.62, 0.72, 0.45)
+	for slot in _equipment_slots():
+		var from: Vector2 = slot["pos"] + Vector2(EQUIP_SLOT / 2.0, EQUIP_SLOT / 2.0)
+		equip_body.draw_line(from, slot["to"], line, 1.5)
+	var parts := [
+		PackedVector2Array([Vector2(128, 250), Vector2(152, 250), Vector2(150, 372), Vector2(124, 372)]), # pierna izquierda
+		PackedVector2Array([Vector2(158, 250), Vector2(182, 250), Vector2(186, 372), Vector2(160, 372)]), # pierna derecha
+		PackedVector2Array([Vector2(112, 112), Vector2(198, 112), Vector2(192, 255), Vector2(118, 255)]), # torso
+		PackedVector2Array([Vector2(112, 114), Vector2(96, 120), Vector2(82, 230), Vector2(102, 236), Vector2(114, 170)]), # brazo izquierdo
+		PackedVector2Array([Vector2(198, 114), Vector2(214, 120), Vector2(228, 230), Vector2(208, 236), Vector2(196, 170)]), # brazo derecho
+	]
+	for part in parts:
+		equip_body.draw_colored_polygon(part, suit)
+		equip_body.draw_polyline(part + PackedVector2Array([part[0]]), edge, 2.0)
+	for boot_x in [124.0, 160.0]:
+		equip_body.draw_rect(Rect2(boot_x, 366, 28, 18), edge.darkened(0.3))
+	equip_body.draw_circle(Vector2(155, 66), 40.0, suit)
+	equip_body.draw_arc(Vector2(155, 66), 40.0, 0.0, TAU, 32, edge, 2.0)
+	equip_body.draw_rect(Rect2(129, 54, 52, 26), visor)
+	equip_body.draw_rect(Rect2(138, 150, 34, 10), edge.darkened(0.3)) # panel del pecho
+	equip_body.draw_rect(Rect2(118, 244, 74, 8), edge.darkened(0.3)) # cinturón
+
+
+## Lo que se lleva puesto, que no ocupa casillas: una casilla por pieza, vacía
+## y apagada si no se tiene, y la linterna se enciende desde ahí.
+func _refresh_equipment() -> void:
+	for child in equip_frame.get_children():
+		if child != equip_body:
+			equip_frame.remove_child(child)
+			child.queue_free()
+	equip_body.queue_redraw()
+	for slot in _equipment_slots():
+		_equipment_slot(slot)
+
+
+func _equipment_slot(slot: Dictionary) -> void:
+	var owned: bool = slot["owned"]
+	var button := Button.new()
+	button.position = slot["pos"]
+	button.custom_minimum_size = Vector2(EQUIP_SLOT, EQUIP_SLOT)
+	button.size = Vector2(EQUIP_SLOT, EQUIP_SLOT)
+	button.focus_mode = Control.FOCUS_NONE
+	button.disabled = not owned
+	button.tooltip_text = "%s\n%s" % [slot["name"], slot["effect"]] if owned else "%s\nTodavía no la tienes: fabrícala en el fabricador" % slot["name"]
+	if owned and slot.get("toggle", false):
 		button.pressed.connect(func() -> void:
 			Game.toggle_flashlight()
 			_refresh_equipment())
-
-
-## Una pieza del equipo: icono, nombre y su efecto. Con "toggle" lleva además
-## un botón, que se devuelve.
-func _equipment_cell(icon_id: String, title: String, effect: String, toggle := false) -> Button:
-	var box := VBoxContainer.new()
-	box.custom_minimum_size.x = 150
-	box.add_theme_constant_override("separation", 2)
 	var icon := TextureRect.new()
-	icon.custom_minimum_size = Vector2(48, 48)
+	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	icon.offset_left = 6
+	icon.offset_top = 6
+	icon.offset_right = -6
+	icon.offset_bottom = -6
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	icon.texture = icons.textures.get(icon_id)
-	box.add_child(icon)
-	box.add_child(_small_label(title, 13))
-	var effect_label := _small_label(effect, 11)
-	effect_label.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
-	box.add_child(effect_label)
-	var button: Button = null
-	if toggle:
-		button = Button.new()
-		button.focus_mode = Control.FOCUS_NONE
-		box.add_child(button)
-	inventory_equipment.add_child(box)
-	return button
+	icon.texture = icons.textures.get(slot["icon"])
+	icon.modulate = Color(1, 1, 1, 1) if owned else Color(0.6, 0.65, 0.75, 0.22)
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(icon)
+	equip_frame.add_child(button)
+	var caption := Label.new()
+	caption.text = slot["caption"]
+	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	caption.add_theme_font_size_override("font_size", 11)
+	caption.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85) if owned else Color(0.55, 0.55, 0.55))
+	caption.position = Vector2(slot["pos"].x - 8.0, slot["pos"].y + EQUIP_SLOT + 1.0)
+	caption.custom_minimum_size.x = EQUIP_SLOT + 16.0
+	caption.size.x = EQUIP_SLOT + 16.0
+	caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	equip_frame.add_child(caption)
 
 
 func _build_locker_panel() -> void:
@@ -707,6 +844,13 @@ func _show_panel(panel: Control) -> void:
 func _close_panel() -> void:
 	if _open_panel == null:
 		return
+	if _open_panel == menu_panel and Game.fabricating != "":
+		Game.cancel_fabrication()
+		_show_message("Fabricación cancelada: te devuelve los materiales.")
+	if _open_panel == locker_panel and is_instance_valid(_locker) and Game.tutorial == 1 \
+			and _locker.is_fixed():
+		Game.tutorial = 2
+		_show_message("Fabrica la herramienta de construcción en el fabricador (E).")
 	_open_panel.visible = false
 	_open_panel = null
 	_locker = null
@@ -729,19 +873,33 @@ func _refresh_panel() -> void:
 
 
 func _on_inventory_changed() -> void:
+	# Una herramienta nueva trae su modo a la barra.
+	_on_tool_changed(Game.tool_mode)
 	if _open_panel:
 		_refresh_panel()
 
 
-## Abre el menú con todas las secciones; con "section", desplazado hasta ella.
-func _show_menu(section: String) -> void:
+## Secciones que enseña el menú abierto ahora.
+func _menu_sections() -> Array:
+	return FAB_SECTIONS if _menu_mode == "fabricate" else BUILD_SECTIONS
+
+
+## Abre el menú de "mode": "build" (construcciones, con la herramienta de
+## construcción) o "fabricate" (el panel del fabricador).
+func _show_menu(mode: String, section := "") -> void:
+	_menu_mode = mode
+	var fabricate := mode == "fabricate"
+	menu_heading.text = "Fabricador" if fabricate else "Construir"
+	menu_close_hint.text = "E, clic derecho o Esc para cerrar" if fabricate else "Clic derecho o Esc para cerrar"
+	fab_box.visible = fabricate
+	_fab_time = 0.0
 	var height := 0.0
-	for name in SECTION_NAMES:
+	for name in _menu_sections():
 		var count := _section_kinds(name).size()
 		if count > 0:
-			height += 44.0 + ceili(count / float(MENU_COLUMNS)) * (CELL_SIZE.y + 6)
+			height += (0.0 if fabricate else 44.0) + ceili(count / float(MENU_COLUMNS)) * (CELL_SIZE.y + 6)
 	var width := MENU_COLUMNS * (CELL_SIZE.x + 6)
-	height = minf(height, get_viewport().get_visible_rect().size.y - 110)
+	height = minf(height, get_viewport().get_visible_rect().size.y - 110 - (110.0 if fabricate else 0.0))
 	menu_scroll.custom_minimum_size = Vector2(width, height)
 	_show_panel(menu_panel)
 	menu_scroll.scroll_vertical = 0
@@ -766,9 +924,39 @@ func _section_kinds(tab: String) -> Array:
 	return kinds
 
 
+## Con la herramienta de construcción: clic o elegir el modo.
 func _on_build_menu_requested() -> void:
 	if not get_tree().paused and not Game.dead:
-		_show_menu("construccion")
+		_show_menu("build")
+
+
+## E sobre un fabricador.
+func _on_fabricator_requested() -> void:
+	if not get_tree().paused and not Game.dead:
+		_show_menu("fabricate")
+
+
+func _on_fabrication_changed() -> void:
+	if _open_panel == menu_panel and _menu_mode == "fabricate":
+		_refresh_menu_grid()
+		_update_fabrication_bar(0.0)
+
+
+## Barra y animación de lo que se fabrica: el icono se mece y late.
+func _update_fabrication_bar(delta: float) -> void:
+	if Game.fabricating == "":
+		fab_label.text = "Elige qué fabricar"
+		fab_bar.value = 0.0
+		fab_icon.modulate = Color(1, 1, 1, 0)
+		return
+	_fab_time += delta
+	fab_label.text = "Fabricando: %s" % Game.RECIPES[Game.fabricating]["name"]
+	fab_bar.value = 1.0 - Game.fabricate_left / maxf(Game.fabricate_total, 0.01)
+	fab_icon.texture = icons.textures.get(Game.fabricating)
+	fab_icon.modulate = Color(1, 1, 1, 1)
+	fab_icon.pivot_offset = fab_icon.size / 2.0
+	fab_icon.scale = Vector2.ONE * (1.0 + 0.1 * sin(_fab_time * 10.0))
+	fab_icon.rotation = sin(_fab_time * 6.0) * 0.2
 
 
 func _on_icons_finished() -> void:
@@ -784,17 +972,19 @@ func _refresh_menu_grid() -> void:
 		menu_sections.remove_child(child)
 		child.queue_free()
 	_section_headers.clear()
-	for section in SECTION_NAMES:
+	for section in _menu_sections():
 		var kinds := _section_kinds(section)
 		if kinds.is_empty():
 			continue
-		var header := Label.new()
-		header.text = SECTION_NAMES[section]
-		header.add_theme_font_size_override("font_size", 16)
-		header.add_theme_color_override("font_color", MODE_COLORS["construir"])
-		menu_sections.add_child(header)
-		_section_headers[section] = header
-		menu_sections.add_child(HSeparator.new())
+		# El fabricador es una sola lista y no necesita título.
+		if _menu_mode == "build":
+			var header := Label.new()
+			header.text = SECTION_NAMES[section]
+			header.add_theme_font_size_override("font_size", 16)
+			header.add_theme_color_override("font_color", MODE_COLORS["construir"])
+			menu_sections.add_child(header)
+			_section_headers[section] = header
+			menu_sections.add_child(HSeparator.new())
 		var grid := GridContainer.new()
 		grid.columns = MENU_COLUMNS
 		grid.add_theme_constant_override("h_separation", 6)
@@ -810,7 +1000,7 @@ func _menu_cell(id: String, section: String) -> Button:
 	var button := Button.new()
 	button.custom_minimum_size = CELL_SIZE
 	button.focus_mode = Control.FOCUS_NONE
-	button.disabled = not Game.can_craft(id) or (_driving and section != "fabricar")
+	button.disabled = not Game.can_craft(id) or _driving or (_menu_mode == "fabricate" and Game.fabricating != "")
 	button.pressed.connect(_on_item_pressed.bind(id))
 	button.tooltip_text = _tooltip(id)
 	var box := VBoxContainer.new()
@@ -826,19 +1016,22 @@ func _menu_cell(id: String, section: String) -> Button:
 	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	icon.texture = icons.textures.get(id)
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	if button.disabled and not owned:
-		icon.modulate = Color(1, 1, 1, 0.45)
+	# Lo que no se puede hacer sale difuminado y los componentes que faltan,
+	# en rojo.
+	var blurred: bool = button.disabled and not owned
+	if blurred:
+		icon.modulate = Color(1, 1, 1, 0.3)
 	box.add_child(icon)
 	var name_label := _small_label(recipe["name"], 12)
+	if blurred:
+		name_label.modulate = Color(1, 1, 1, 0.5)
 	box.add_child(name_label)
-	var cost_text: String = Game.cost_text(recipe["cost"])
-	var cost_color := Color(0.75, 0.75, 0.75)
 	if owned:
-		cost_text = "Ya lo tienes"
-		cost_color = Color(0.55, 0.9, 0.55)
-	var cost_label := _small_label(cost_text, 11)
-	cost_label.add_theme_color_override("font_color", cost_color)
-	box.add_child(cost_label)
+		var owned_label := _small_label("Ya lo tienes", 11)
+		owned_label.add_theme_color_override("font_color", Color(0.55, 0.9, 0.55))
+		box.add_child(owned_label)
+	else:
+		box.add_child(_cost_label(recipe["cost"], blurred))
 	var count := int(Game.inventory.get(id, 0))
 	if recipe["kind"] == "consumable" and count > 0:
 		# Cuántas lleva ya, en la esquina de arriba a la derecha.
@@ -854,6 +1047,30 @@ func _menu_cell(id: String, section: String) -> Button:
 	return button
 
 
+## Coste de una receta: cada componente en su color, en rojo los que faltan.
+func _cost_label(cost: Dictionary, blurred: bool) -> RichTextLabel:
+	var parts := PackedStringArray()
+	for res in cost:
+		var text := "%d %s" % [cost[res], String(Game.RESOURCE_NAMES[res]).to_lower()]
+		if int(Game.inventory.get(res, 0)) < int(cost[res]):
+			text = "[color=#ff5a50]%s[/color]" % text
+		parts.append(text)
+	var label := RichTextLabel.new()
+	label.bbcode_enabled = true
+	label.fit_content = true
+	label.scroll_active = false
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.custom_minimum_size.x = CELL_SIZE.x - 8
+	label.add_theme_font_size_override("normal_font_size", 11)
+	label.add_theme_color_override("default_color", Color(0.75, 0.75, 0.75))
+	label.text = "[center]%s[/center]" % " + ".join(parts)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if blurred:
+		# Los que faltan siguen viéndose bien; solo se apaga el resto.
+		label.modulate = Color(1, 1, 1, 0.85)
+	return label
+
+
 ## Las herramientas se fabrican una sola vez.
 func _owned(id: String) -> bool:
 	match id:
@@ -867,6 +1084,10 @@ func _owned(id: String) -> bool:
 			return Game.has_jetpack
 		"linterna":
 			return Game.has_flashlight
+		"herramienta_construccion":
+			return Game.has_build_tool
+		"herramienta_desmontaje":
+			return Game.has_dismantle_tool
 	return false
 
 
@@ -898,6 +1119,12 @@ func _tooltip(id: String) -> String:
 				tip += "\nAntes necesitas la %s" % String(Game.BACKPACKS[previous]["name"]).to_lower()
 		"linterna":
 			tip += "\nL para encenderla o apagarla; dentro de las cuevas no se ve nada sin ella"
+		"herramienta_construccion":
+			tip += "\nModo Construir (2): coloca bases, máquinas y todo lo demás"
+		"herramienta_desmontaje":
+			tip += "\nModo Desmontar (3): quita lo construido y te devuelve los materiales"
+		"fabricador":
+			tip += "\nPara fabricar lejos de la cápsula; no gasta energía. Va dentro de la base"
 		"placa", "circuito":
 			tip += "\nComponente de las tecnologías avanzadas"
 	if recipe["kind"] == "consumable" and Game.room_for(id) < 1:
@@ -950,9 +1177,12 @@ func _small_label(text: String, size: int) -> Label:
 	return label
 
 
-## Lo fabricado va al inventario y el menú sigue abierto para hacer más;
-## lo que se construye cierra el menú y empieza a colocarse.
+## En el fabricador empieza a fabricar (va a la mochila al acabar); en el
+## menú de construir cierra el menú y empieza a colocarse.
 func _on_item_pressed(id: String) -> void:
+	if _menu_mode == "fabricate":
+		Game.start_fabrication(id)
+		return
 	if Game.is_placeable(id):
 		_close_panel()
 		# Colocar solo funciona en modo construir (al cambiar de modo se cancela).
@@ -962,7 +1192,7 @@ func _on_item_pressed(id: String) -> void:
 
 ## Panel del terminal: lo que se puede investigar con chips de datos.
 func _build_research_panel() -> void:
-	var parts := _panel("Terminal de investigación (E, Tab o Esc para cerrar)")
+	var parts := _panel("Terminal de investigación (E o Esc para cerrar)")
 	research_panel = parts[0]
 	research_list = VBoxContainer.new()
 	research_list.custom_minimum_size.x = 520
@@ -1019,7 +1249,7 @@ func _refresh_research() -> void:
 ## Mapa por satélite: los biomas del planeta, dónde estás y lo que has
 ## visitado. Hace falta un enlace satelital construido.
 func _build_map_panel() -> void:
-	var parts := _panel("Mapa por satélite (M, Tab o Esc para cerrar)")
+	var parts := _panel("Mapa por satélite (M o Esc para cerrar)")
 	map_panel = parts[0]
 	var frame := Control.new()
 	frame.custom_minimum_size = Vector2(MAP_SIZE, MAP_SIZE)
@@ -1124,7 +1354,7 @@ func _refresh_locker() -> void:
 		return
 	_locker_total = _locker.stored_total()
 	var locker_name: String = Game.RECIPES[_locker.kind]["name"]
-	locker_title.text = "%s · %d / %d (E, Tab o Esc para cerrar)" % [locker_name, _locker.stored_total(), _locker.capacity()]
+	locker_title.text = "%s · %d / %d (E o Esc para cerrar)" % [locker_name, _locker.stored_total(), _locker.capacity()]
 	# En la bomba, el bancal y la estación de drones solo se saca lo que traen.
 	var accepts: bool = _locker.accepts_items()
 	for column in [locker_inventory, locker_contents]:
