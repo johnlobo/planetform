@@ -13,6 +13,8 @@ signal tool_changed(mode: String)
 signal tool_used(point: Vector3)
 signal build_menu_requested
 signal locker_requested(locker: Node3D)
+signal fabricator_requested
+signal fabrication_changed
 signal driving_changed(driving: bool)
 signal crate_opened(text: String)
 signal research_requested
@@ -53,6 +55,14 @@ const ADVANCED_DRILL := {"titanio": 1, "cuarzo": 1, "iridio": 2}
 #   {"fragments": n}: reunir n fragmentos de su plano en cajas de suministros.
 # Lo que no está desbloqueado no se enseña.
 const RECIPES := {
+	# Las dos herramientas con las que se construye y se desmonta: se aterriza
+	# solo con el recolector.
+	"herramienta_construccion": {"name": "Herramienta de construcción", "cost": {"hierro": 3, "silicio": 2}, "kind": "tool", "stage": 0},
+	"herramienta_desmontaje": {"name": "Herramienta de desmontaje", "cost": {"hierro": 2, "silicio": 1}, "kind": "tool", "stage": 0},
+	# Fabricador: el de la cápsula ya está; este es para fabricar lejos de ella.
+	"fabricador": {"name": "Fabricador", "cost": {"hierro": 4, "silicio": 2, "cobre": 1}, "kind": "building", "stage": 0, "tab": "construccion"},
+	# Almacén de pared de la cápsula: no se fabrica ni sale en ningún menú.
+	"almacen": {"name": "Almacén de pared", "cost": {}, "kind": "building", "stage": 0, "hidden": true},
 	# Taladros: cada uno sustituye al anterior y hace falta tener el anterior.
 	"taladro": {"name": "Taladro mejorado", "cost": {"hierro": 3, "silicio": 1}, "kind": "tool", "stage": 0},
 	"taladro_termico": {"name": "Taladro térmico", "cost": {"hierro": 4, "cobre": 3, "silicio": 2}, "kind": "tool", "stage": 2},
@@ -147,6 +157,10 @@ const MACHINES := {
 	"compresor": {"energy": -2, "oxygen": 0, "temperature": 0, "biomass": 0, "pressure": 3},
 	# Guarda recursos: "storage" es cuántas unidades caben.
 	"taquilla": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "storage": 50},
+	# Almacén de pared de la cápsula ("fixed" = parte de ella, no se desmonta).
+	"almacen": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "storage": 50, "fixed": true},
+	# Fabricador: con E se abre su panel. No gasta energía. Va dentro de la base.
+	"fabricador": {"energy": 0, "oxygen": 0, "temperature": 0, "biomass": 0, "inside": true, "fabricator": true},
 	# Deshielo: el musgo crece solo; el bancal, más rápido pero con energía.
 	# "plant" = con lluvia sube la biomasa RAIN_PLANT_FACTOR veces más rápido.
 	# "outside" = solo se coloca fuera de la base. "grow_time" = segundos que
@@ -205,6 +219,8 @@ const FOODS := {"verdura": 20.0, "racion": 40.0, "guiso": 100.0}
 
 # Modos de la herramienta de mano, en el orden de las teclas 1, 2 y 3.
 const TOOL_MODES := ["recoger", "construir", "desmontar"]
+# Segundos que tarda el fabricador en hacer algo, según lo que sea.
+const FABRICATE_TIME := {"consumable": 1.0, "tool": 2.5}
 const TOOL_NAMES := {"recoger": "Recoger", "construir": "Construir", "desmontar": "Desmontar"}
 
 # Niveles del taladro de la herramienta. "time" son los segundos que hay que
@@ -250,7 +266,7 @@ const HUNGER_DRAIN := 100.0 / 720.0
 const HUNGER_WARNING := 25.0
 const STARVE_TIME := 60.0
 # Raciones con las que se empieza, para aguantar hasta tener bancales.
-const START_RATIONS := 5
+const START_RATIONS := 5 # van al almacén de pared de la cápsula
 # Peso de cada métrica en el índice de terraformación. Sin biomasa se llega
 # como mucho al 80 %: para que el planeta sea habitable hacen falta plantas.
 const INDEX_WEIGHTS := {"oxygen": 0.3, "temperature": 0.3, "pressure": 0.2, "biomass": 0.2}
@@ -294,7 +310,7 @@ const SLEEP_HUNGER_FACTOR := 0.5
 const FRAGMENT_CHANCE := 0.45
 # Versión del guardado. La 2 añadió las Lluvias entre el Deshielo y Habitable;
 # la 3, el nivel de mochila y la humedad.
-const SAVE_VERSION := 3
+const SAVE_VERSION := 4
 const SAVE_PATH := "user://partida.json"
 # Los ajustes van aparte de la partida: valen para todas.
 const SETTINGS_PATH := "user://ajustes.cfg"
@@ -302,7 +318,7 @@ const SHADOW_NAMES := ["Sin sombras", "Sombras bajas", "Sombras altas"]
 const AUTOSAVE_TIME := 15.0
 
 var inventory := {"hierro": 0, "silicio": 0, "hielo": 0, "cobre": 0, "agua": 0, "semillas": 0, "botella": 0,
-		"racion": START_RATIONS, "verdura": 0, "guiso": 0,
+		"racion": 0, "verdura": 0, "guiso": 0,
 		"titanio": 0, "cuarzo": 0, "iridio": 0, "placa": 0, "circuito": 0, "chip": 0}
 var drill_level := 0 # índice en DRILLS
 var backpack_level := 0 # índice en BACKPACKS
@@ -310,6 +326,18 @@ var has_tank := false
 var has_jetpack := false
 var has_flashlight := false
 var flashlight_on := false
+# Las herramientas de construir y de desmontar hay que fabricarlas.
+var has_build_tool := false
+var has_dismantle_tool := false
+# Almacén de pared de la cápsula: {"kind": "almacen", "items": {...}}.
+var capsule := {"kind": "almacen", "items": {"racion": START_RATIONS, "botella": 2}}
+# Pasos del aviso del principio: 1 abrir el almacén, 2 fabricar la herramienta
+# de construcción, 3 hecho.
+var tutorial := 1
+# Lo que se está fabricando ("" si nada) y los segundos que le quedan.
+var fabricating := ""
+var fabricate_left := 0.0
+var fabricate_total := 0.0
 # Recetas con "unlock" ya desbloqueadas (sin las de "found", que van por found).
 var unlocked: Array = []
 # Materiales avanzados recogidos alguna vez.
@@ -432,6 +460,7 @@ func _process(delta: float) -> void:
 	if finished or dead:
 		return
 	_update_battery(delta)
+	_update_fabrication(delta)
 	if not machine_counts.is_empty():
 		for metric in METRICS:
 			set(metric, minf(100.0, float(get(metric)) + metric_rate(metric) * delta))
@@ -462,6 +491,7 @@ func _process(delta: float) -> void:
 
 
 func _die(cause: String) -> void:
+	cancel_fabrication()
 	dead = true
 	Sfx.play("muerte")
 	player_died.emit(cause)
@@ -483,7 +513,7 @@ func respawn() -> void:
 	_was_frozen = false
 	_was_low_oxygen = false
 	player_respawned.emit()
-	message.emit("Vuelves a tu cama." if spawn_bed() != null else "Vuelves a la base.")
+	message.emit("Vuelves a tu cama." if spawn_bed() != null else "Vuelves a la cápsula.")
 
 
 ## 1 a mediodía, -1 a medianoche.
@@ -876,7 +906,7 @@ func add_item(id: String, amount: int) -> void:
 ## true si la receta sale en el menú: su etapa y lo que pida "unlock".
 func is_unlocked(id: String) -> bool:
 	var recipe: Dictionary = RECIPES[id]
-	if stage < int(recipe["stage"]):
+	if recipe.get("hidden", false) or stage < int(recipe["stage"]):
 		return false
 	var unlock: Dictionary = recipe.get("unlock", {})
 	if unlock.is_empty():
@@ -995,7 +1025,7 @@ func visit_site(id: String) -> bool:
 ## Enciende o apaga la linterna, si se tiene.
 func toggle_flashlight() -> void:
 	if not has_flashlight:
-		message.emit("No tienes linterna: fabrícala (Tab).")
+		message.emit("No tienes linterna: fabrícala en el fabricador (E).")
 		return
 	flashlight_on = not flashlight_on
 	Sfx.play("clic")
@@ -1010,7 +1040,8 @@ func can_craft(id: String) -> bool:
 	var pack := backpack_index(id)
 	if pack > 0 and backpack_level != pack - 1:
 		return false # ya la tiene, o le falta la anterior
-	if (id == "tanque" and has_tank) or (id == "jetpack" and has_jetpack) or (id == "linterna" and has_flashlight):
+	if (id == "tanque" and has_tank) or (id == "jetpack" and has_jetpack) or (id == "linterna" and has_flashlight) \
+			or (id == "herramienta_construccion" and has_build_tool) or (id == "herramienta_desmontaje" and has_dismantle_tool):
 		return false
 	var cost: Dictionary = RECIPES[id]["cost"]
 	for res in cost:
@@ -1027,19 +1058,30 @@ func can_craft(id: String) -> bool:
 	return true
 
 
+## Las construcciones se colocan en el mundo; lo demás se fabrica al
+## momento (el fabricador usa start_fabrication, que tarda).
 func craft(id: String) -> bool:
 	if not can_craft(id):
 		return false
-	var recipe: Dictionary = RECIPES[id]
 	# Las construcciones se pagan al colocarlas, así cancelar no cuesta nada.
 	if is_placeable(id):
 		place_requested.emit(id)
 		return true
-	var cost: Dictionary = recipe["cost"]
+	_pay_cost(id)
+	_deliver(id)
+	return true
+
+
+func _pay_cost(id: String) -> void:
+	var cost: Dictionary = RECIPES[id]["cost"]
 	for res in cost:
 		inventory[res] = int(inventory[res]) - int(cost[res])
+
+
+## Entrega lo fabricado: una herramienta se equipa y un consumible va a la mochila.
+func _deliver(id: String) -> void:
 	Sfx.play("craftear")
-	match String(recipe["kind"]):
+	match String(RECIPES[id]["kind"]):
 		"tool":
 			if id == "tanque":
 				has_tank = true
@@ -1052,6 +1094,14 @@ func craft(id: String) -> bool:
 				has_flashlight = true
 				flashlight_on = true
 				message.emit("Linterna: L para encenderla o apagarla.")
+			elif id == "herramienta_construccion":
+				has_build_tool = true
+				if tutorial < 3:
+					tutorial = 3
+				message.emit("Herramienta de construcción: pulsa 2 para construir.")
+			elif id == "herramienta_desmontaje":
+				has_dismantle_tool = true
+				message.emit("Herramienta de desmontaje: pulsa 3 para desmontar.")
 			elif backpack_index(id) > 0:
 				backpack_level = backpack_index(id)
 				message.emit("%s: ahora tienes %d casillas." % [BACKPACKS[backpack_level]["name"], slots_max()])
@@ -1061,8 +1111,46 @@ func craft(id: String) -> bool:
 				message.emit("%s: recoges x%d y %.1f veces más rápido." % [drill["name"], drill["yield"], float(DRILLS[0]["time"]) / float(drill["time"])])
 		"consumable":
 			inventory[id] = int(inventory.get(id, 0)) + 1
+			message.emit("Fabricado: %s." % String(RECIPES[id]["name"]).to_lower())
 	inventory_changed.emit()
+
+
+## Empieza a fabricar en el fabricador: los materiales se cobran ya y se
+## devuelven si se cancela. Solo se hace una cosa a la vez.
+func start_fabrication(id: String) -> bool:
+	if fabricating != "" or is_placeable(id) or not can_craft(id):
+		return false
+	_pay_cost(id)
+	fabricating = id
+	fabricate_total = float(FABRICATE_TIME[String(RECIPES[id]["kind"])])
+	fabricate_left = fabricate_total
+	Sfx.play("clic")
+	inventory_changed.emit()
+	fabrication_changed.emit()
 	return true
+
+
+## Se cierra el panel (o muere el jugador) antes de acabar: vuelven los materiales.
+func cancel_fabrication() -> void:
+	if fabricating == "":
+		return
+	var cost: Dictionary = RECIPES[fabricating]["cost"]
+	fabricating = ""
+	refund(cost)
+	fabrication_changed.emit()
+
+
+func _update_fabrication(delta: float) -> void:
+	if fabricating == "":
+		return
+	fabricate_left -= delta
+	if fabricate_left > 0.0:
+		return
+	var id := fabricating
+	fabricating = ""
+	_deliver(id)
+	Sfx.play("etapa", 0.0, -8.0)
+	fabrication_changed.emit()
 
 
 ## Nivel de taladro que da la receta id, o 0 si no es un taladro.
@@ -1138,8 +1226,23 @@ func cost_text(cost: Dictionary) -> String:
 	return " + ".join(parts)
 
 
+## true si se tiene la herramienta de ese modo: el recolector siempre.
+func has_mode(mode: String) -> bool:
+	match mode:
+		"construir":
+			return has_build_tool
+		"desmontar":
+			return has_dismantle_tool
+	return true
+
+
+## Los modos que se tienen, en el orden de TOOL_MODES.
+func owned_modes() -> Array:
+	return TOOL_MODES.filter(func(mode: String) -> bool: return has_mode(mode))
+
+
 func set_tool_mode(mode: String) -> void:
-	if mode == tool_mode:
+	if mode == tool_mode or not has_mode(mode):
 		return
 	tool_mode = mode
 	tool_changed.emit(mode)
@@ -1197,6 +1300,10 @@ func save_game() -> void:
 		"has_jetpack": has_jetpack,
 		"has_flashlight": has_flashlight,
 		"flashlight_on": flashlight_on,
+		"has_build_tool": has_build_tool,
+		"has_dismantle_tool": has_dismantle_tool,
+		"capsule": capsule,
+		"tutorial": tutorial,
 		"unlocked": unlocked,
 		"found": found,
 		"fragments": fragments,
@@ -1255,6 +1362,10 @@ func load_game() -> bool:
 	if typeof(data) != TYPE_DICTIONARY:
 		push_warning("La partida guardada está dañada; se empieza de cero.")
 		return false
+	if int(data.get("version", 1)) < SAVE_VERSION:
+		# Las partidas de antes de la cápsula no se adaptan: se empieza de cero.
+		push_warning("La partida guardada es de una versión anterior; se empieza una nueva.")
+		return false
 	_reset_state()
 	var saved_inventory: Dictionary = data.get("inventory", {})
 	for id in inventory:
@@ -1275,6 +1386,15 @@ func load_game() -> bool:
 	has_jetpack = bool(data.get("has_jetpack", false))
 	has_flashlight = bool(data.get("has_flashlight", false))
 	flashlight_on = has_flashlight and bool(data.get("flashlight_on", false))
+	has_build_tool = bool(data.get("has_build_tool", false))
+	has_dismantle_tool = bool(data.get("has_dismantle_tool", false))
+	var saved_capsule = data.get("capsule", {})
+	if typeof(saved_capsule) == TYPE_DICTIONARY and typeof(saved_capsule.get("items", null)) == TYPE_DICTIONARY:
+		capsule = {"kind": "almacen", "items": {}}
+		for id in saved_capsule["items"]:
+			if RESOURCE_NAMES.has(String(id)) and int(saved_capsule["items"][id]) > 0:
+				capsule["items"][String(id)] = int(saved_capsule["items"][id])
+	tutorial = int(data.get("tutorial", 3))
 	# Lo de las partidas de antes de los desbloqueos empieza a cero.
 	for id in data.get("unlocked", []):
 		if RECIPES.has(String(id)) and not String(id) in unlocked:
@@ -1312,13 +1432,8 @@ func load_game() -> bool:
 	wetness = clampf(float(data.get("wetness", 0.0)), 0.0, WET_MAX)
 	_was_wet = wetness >= WET_WARNING
 	_was_nearly_full = slots_free() <= 1
-	if int(data.get("version", 1)) < 3 and pending_notice == "":
-		pending_notice = "Novedad: inventario con I; Q y F ya no se usan. Mojarse da frío."
 	battery_charge = float(data.get("battery_charge", 0.0))
 	_was_hungry = hunger <= HUNGER_WARNING
-	if not data.has("hunger"):
-		# Partida de antes del hambre: se le dan las raciones del principio.
-		inventory["racion"] = START_RATIONS
 	_was_night = is_night()
 	_was_raining = is_raining()
 	finished = bool(data.get("finished", false))
@@ -1356,7 +1471,11 @@ func new_game() -> void:
 func _reset_state() -> void:
 	for id in inventory:
 		inventory[id] = 0
-	inventory["racion"] = START_RATIONS
+	capsule = {"kind": "almacen", "items": {"racion": START_RATIONS, "botella": 2}}
+	tutorial = 1
+	fabricating = ""
+	has_build_tool = false
+	has_dismantle_tool = false
 	drill_level = 0
 	backpack_level = 0
 	has_tank = false
@@ -1422,7 +1541,6 @@ func _setup_input() -> void:
 	_add_key("move_left", [KEY_A, KEY_LEFT])
 	_add_key("move_right", [KEY_D, KEY_RIGHT])
 	_add_key("jump", [KEY_SPACE])
-	_add_key("craft", [KEY_TAB, KEY_C])
 	_add_key("inventory", [KEY_I])
 	_add_key("pause", [KEY_ESCAPE])
 	_add_key("rotate_building", [KEY_R])

@@ -22,26 +22,28 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 | Espacio | Saltar (mantenido en el aire, con propulsores: volar un poco) |
 | Clic izquierdo | Usar la herramienta (y capturar el ratón) |
 | 1 / 2 / 3 o rueda del ratón | Cambiar el modo de la herramienta: recoger, construir o desmontar |
-| Tab o C | Abrir y cerrar el menú de fabricar y construir (vuelve a la última pestaña usada) |
 | E | Abrir la taquilla, la bomba de agua, el bancal, el extractor o la estación de drones que miras; dormir en la cama; usar el terminal o el telepuerto; abrir una caja de suministros; subir al róver y bajar de él |
 | L | Encender y apagar la linterna |
 | W S / A D (en el róver) | Acelerar y frenar o marcha atrás / girar; Espacio es el freno |
 | I | Abrir y cerrar el inventario: la mochila por casillas, usar botellas y comida, tirar objetos y ver el equipo |
 | F3 | Contador de rendimiento: FPS, ms por fotograma, llamadas de dibujo, trozos cargados y lo que costó el último |
-| Esc | Cerrar el menú, la taquilla o la colocación que tengas abierta; si no hay nada abierto, pausa (y suelta el ratón) |
+| Esc | Cerrar el menú, el almacén, la taquilla o la colocación que tengas abierta; si no hay nada abierto, pausa (y suelta el ratón) |
 | R / rueda del ratón | Girar lo que estás colocando |
 | Clic derecho o Esc | Cancelar la colocación |
 
 ## Cómo se juega
 
-- **Fabricar y construir** comparten un menú: una sola lista con cuatro secciones separadas por un título, un icono por receta y la rueda para bajar si no cabe. En **Fabricar** están las herramientas, las botellas, las semillas, el guiso y los componentes: van al inventario y el menú sigue abierto para hacer más. Lo que se coloca en el mundo está repartido en **Construcción** (base, muebles, pantallas), **Tecnología** (energía, vehículos, automatización) y **Terraformación** (lo que sube las métricas del planeta): al elegirlo, la herramienta pasa a modo construir y empieza la colocación. Tab abre el menú arriba; el modo construir, en Construcción. Solo sale lo desbloqueado; lo demás no se enseña.
+- **Cápsula de aterrizaje:** la partida empieza dentro de una cápsula en el centro del mapa. Es un refugio (recarga tu oxígeno y no pasas frío), tiene luz propia, no se puede desmontar y es donde reapareces si mueres sin cama. Dentro hay un **almacén de pared** (50 unidades, con tus 5 raciones y 2 botellas de oxígeno; la mochila empieza vacía) y un **fabricador**. Aterrizas solo con el **recolector** (modo Recoger, taladro básico).
+- **Fabricador** (E o clic sobre él): ahí se fabrica todo lo que no se coloca en el mundo: herramientas, mochilas, tanque, propulsores, linterna, botellas, semillas, guiso y componentes. Gasta solo los materiales de la mochila. Al pulsar una receta sale una barra de progreso con una animación (1 s los consumibles, 2,5 s las herramientas) y el brazo del fabricador trabaja; si cierras el panel antes de acabar, se te devuelven los materiales. Primero hay que fabricar la **herramienta de construcción** (3 hierro + 2 silicio, modo 2) y la **herramienta de desmontaje** (2 hierro + 1 silicio, modo 3); la barra de modos solo enseña los que tienes. Con la herramienta de construcción puedes poner más fabricadores (4 hierro + 2 silicio + 1 cobre, dentro de la base) para fabricar lejos de la cápsula.
+- **Construir** (herramienta de construcción, modo 2: elegirlo o hacer clic): un menú con tres secciones separadas por un título, un icono por receta y la rueda para bajar si no cabe: **Construcción** (base, muebles, pantallas), **Tecnología** (energía, vehículos, automatización) y **Terraformación** (lo que sube las métricas del planeta). Al elegir algo empieza la colocación. Solo sale lo desbloqueado; lo demás no se enseña. El inventario (I) enseña la mochila y, a su derecha, el equipo montado sobre la silueta de un astronauta; desde ahí se siguen usando botellas y comida.
+- **Partidas guardadas:** las de antes de la cápsula (versión 3 o anterior) no se cargan; se empieza una nueva.
 
 - **Materiales avanzados y sitios recónditos** (a partir de 250 m de la base):
   - **Cuevas** (48 en el mapa, en laderas de montaña): una sala de roca gruesa metida en la montaña, con un túnel de entrada de roca maciza. La entrada mira siempre cuesta abajo y se llega por una rampa; desde arriba o de lado solo se ven las rocas de la loma, así que hay que rodearla hasta encontrar la entrada. Dentro no llueve y está oscuro (fabrica la **linterna**, L). Tienen **titanio** en las paredes, **cuarzo** rosa al fondo y, en la mitad, una caja de suministros.
   - **Restos de naves** (18, desde 300 m): cada uno con una caja de suministros.
   - **Cráteres** (14, desde 600 m): el terreno se hunde 6 m hacia el centro, con el borde levantado y rocas alrededor, y un meteorito de **iridio** en el fondo.
   - El titanio y el cuarzo piden el taladro mejorado; el iridio, el térmico. Tardan 5 minutos en reaparecer.
-  - Con titanio se fabrica la **placa de aleación** (2 titanio + 1 hierro) y con cuarzo el **circuito** (1 cuarzo + 1 cobre + 1 silicio); aparecen en Fabricar al recoger el material por primera vez.
+  - Con titanio se fabrica la **placa de aleación** (2 titanio + 1 hierro) y con cuarzo el **circuito** (1 cuarzo + 1 cobre + 1 silicio); aparecen en el fabricador al recoger el material por primera vez.
 - **Desbloqueos.** Cada caja de suministros se abre una vez y da un **chip de datos** o un **fragmento de plano**. Las tecnologías avanzadas se desbloquean así:
 
   | Tecnología | Pestaña | Qué hace | Coste | Se desbloquea con |
@@ -58,7 +60,7 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 - La **herramienta** de la mano tiene tres modos y su cabezal cambia con cada uno:
   - **Recoger** (taladro): mantén pulsado el clic sobre un recurso hasta que se llene la barra bajo la mira y lo recoges entero
     (un depósito tiene 3), o haz clic en una taquilla para abrirla.
-- **Taladros:** cada uno se fabrica en la pestaña Fabricar, necesita el anterior y cambia el color de la broca.
+- **Taladros:** cada uno se fabrica en el fabricador, necesita el anterior y cambia el color de la broca.
 
   | Taladro | Etapa | Coste | Segundos de barra | Recoges |
   |---|---|---|---|---|
@@ -87,7 +89,7 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
   los lagos van subiendo poco a poco en los valles. Con el agua por encima de las rodillas andas más despacio.
 - **Agua:** se recoge manteniendo el clic sobre la superficie de un lago (no se agota) o con una **bomba de agua** (gasta 1 de energía,
   saca 1 de agua cada 6 s, guarda hasta 20; se abre con E para sacarla).
-- **Propulsores** (Primera neblina, se fabrican con Tab): con Espacio pulsado en el aire empujan hacia arriba unos 3 s
+- **Propulsores** (Primera neblina, se fabrican en el fabricador): con Espacio pulsado en el aire empujan hacia arriba unos 3 s
   (unos 20 m de subida) y dejan ir más rápido; se rellenan solos al pisar el suelo. Sirven para subir a las montañas.
 - **Róver de exploración** (Primera neblina): se coloca desde la pestaña Construir. E para subir y bajar.
   Tiene un **maletero** de 20 unidades (clic en modo recoger) y una **batería** que se gasta al acelerar (unos 2 minutos
@@ -100,7 +102,7 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
   solo, no gasta energía y sube la biomasa. El **bancal de cultivo** (con lámpara) la sube el triple pero gasta 1 de energía; va bien dentro de la base.
 - **Comida y hambre:** la barra de **comida** se vacía en 12 minutos (tres días), también dentro de la base. Comes desde el **inventario** (I):
   verduras (+20), raciones (+40) o guiso (+100), la que elijas. Si la barra llega a 0 tienes 60 segundos para comer o te desmayas.
-  Empiezas con 5 **raciones de emergencia**. El **bancal de cultivo** da 1 de **verduras** cada 20 s con toda la energía (guarda hasta 12;
+  Empiezas con 5 **raciones de emergencia** en el almacén de pared. El **bancal de cultivo** da 1 de **verduras** cada 20 s con toda la energía (guarda hasta 12;
   se ven los frutos rojos y se abre con E para sacarlas). Con 3 verduras + 1 agua se fabrica un **guiso**, que llena la barra entera.
 - **Día y noche:** un día dura 4 minutos. De noche tu **calor** baja (menos cuanto más caliente está el planeta)
   salvo si estás a menos de 8 m de un calentador con energía; de día se recupera. Si el calor llega a 0, gastas oxígeno el triple de rápido.
@@ -194,11 +196,12 @@ project.godot          Configuración (autoload Game, renderizador Compatibility
 scenes/main.tscn       Escena principal
 scripts/game_state.gd  Estado global: inventario, recetas, métricas, etapas
 scripts/main.gd        Construye el mundo: cielo, agua, recursos y la base
+scripts/capsule.gd     Cápsula de aterrizaje: refugio, almacén de pared y fabricador
 scripts/terrain.gd     Terreno de 2 km por trozos: montañas, rocas, árboles y recursos de cada zona
 scripts/player.gd      Jugador en primera persona y recolección
 scripts/resource_node.gd  Depósitos de recursos que reaparecen
 scripts/machine.gd     Máquinas, taquillas y pantallas
-scripts/hud.gd         Interfaz y menú de fabricar y construir
+scripts/hud.gd         Interfaz, panel del fabricador, menú de construir e inventario con el equipo
 scripts/icons.gd       Iconos del menú, dibujados en el juego
 ```
 

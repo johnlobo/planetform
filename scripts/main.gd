@@ -13,6 +13,7 @@ const Module := preload("res://scripts/module.gd")
 const WaterBody := preload("res://scripts/water_body.gd")
 const Terrain := preload("res://scripts/terrain.gd")
 const Rover := preload("res://scripts/rover.gd")
+const Capsule := preload("res://scripts/capsule.gd")
 
 const WORLD_SIZE := Terrain.WORLD_SIZE
 # Depósitos de la zona del principio; el resto del mapa tiene los suyos por trozos.
@@ -63,6 +64,8 @@ var terrain: StaticBody3D # el cuerpo de todo el suelo
 var resource_defs := {}
 var placer: Node3D
 var modules: Array[Module] = []
+# La cápsula de aterrizaje, en el centro del mapa.
+var capsule: Capsule
 var _shelter_explained := false
 var _cave_dark := 0.0 # de 0 fuera a 1 dentro de una cueva
 var _site_check := 0.0
@@ -91,6 +94,9 @@ func _ready() -> void:
 	# Primero los depósitos: los trozos del terreno también los usan.
 	_spawn_resources()
 	_build_terrain()
+	capsule = Capsule.new()
+	add_child(capsule)
+	capsule.setup(self)
 	for m in Game.machines:
 		spawn_machine(m)
 	for m in Game.modules:
@@ -516,7 +522,7 @@ func _assign_melt_order() -> void:
 
 
 func _spawn_player() -> void:
-	var base := Vector3(0.0, surface_height(0.0, 0.0) + 1.0, 0.0)
+	var base := capsule.spawn_position()
 	player = Player.new()
 	player.world = self
 	player.position = base
@@ -621,6 +627,10 @@ func _adjacent(a: Module, b: Module) -> bool:
 ## ilumina), "refund"} o, si no se puede, {"name", "node", "reason"}.
 ## Vacío si no es algo construido.
 func dismantle_info(target: Object) -> Dictionary:
+	if target is Node and target.has_meta("capsule"):
+		return {"name": "Cápsula", "node": null, "reason": "es tu cápsula"}
+	if target is Machine and (target as Machine).is_fixed():
+		return {"name": Game.RECIPES[(target as Machine).kind]["name"], "node": null, "reason": "es parte de tu cápsula"}
 	if target is Machine:
 		var machine := target as Machine
 		return {"name": Game.RECIPES[machine.kind]["name"], "node": machine, "refund": Game.RECIPES[machine.kind]["cost"]}
@@ -743,11 +753,15 @@ func _remove_module(module: Module) -> void:
 
 
 func _update_shelter() -> void:
-	var inside := false
+	var in_capsule := capsule.contains(player.global_position + Vector3(0, 0.5, 0))
+	var inside := in_capsule
 	for module in modules:
 		if module.contains(player.global_position + Vector3(0, 0.5, 0)):
 			inside = true
 			break
+	# El primer aviso de la partida es el del almacén, no el del refugio.
+	if in_capsule:
+		_shelter_explained = true
 	if inside and not Game.sheltered and not _shelter_explained:
 		_shelter_explained = true
 		Game.message.emit("Estás a cubierto: aquí recuperas oxígeno y no pasas frío.")
@@ -786,7 +800,7 @@ func _on_stage_reached(stage: int) -> void:
 func _explain_deshielo() -> void:
 	for text in [
 			"El hielo empieza a derretirse y se forman lagos en los valles.",
-			"Recoge agua en la orilla y fabrica semillas de musgo (Tab).",
+			"Recoge agua en la orilla y fabrica semillas de musgo en el fabricador (E).",
 			"Planta musgo fuera y monta bancales en la base: la biomasa sube el índice."]:
 		await get_tree().create_timer(Hud.MESSAGE_TIME + 0.5).timeout
 		Game.message.emit(text)
