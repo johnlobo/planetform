@@ -56,6 +56,10 @@ const RECIPES := {
 	"taladro": {"name": "Taladro mejorado", "cost": {"hierro": 3, "silicio": 1}, "kind": "tool", "stage": 0},
 	"taladro_termico": {"name": "Taladro térmico", "cost": {"hierro": 4, "cobre": 3, "silicio": 2}, "kind": "tool", "stage": 2},
 	"taladro_plasma": {"name": "Taladro de plasma", "cost": {"hierro": 5, "cobre": 4, "silicio": 3, "agua": 2}, "kind": "tool", "stage": 3},
+	# Mochilas: cada una sustituye a la anterior y hace falta tener la anterior.
+	"mochila": {"name": "Mochila", "cost": {"hierro": 3, "silicio": 2}, "kind": "tool", "stage": 0},
+	"mochila_reforzada": {"name": "Mochila reforzada", "cost": {"hierro": 4, "cobre": 3, "silicio": 2}, "kind": "tool", "stage": 2},
+	"mochila_aleacion": {"name": "Mochila de aleación", "cost": {"placa": 2, "circuito": 1}, "kind": "tool", "stage": 0, "unlock": {"found": "titanio"}},
 	"panel": {"name": "Panel solar", "cost": {"hierro": 2, "silicio": 2}, "kind": "building", "stage": 0, "tab": "tecnologia"},
 	"generador": {"name": "Generador de oxígeno", "cost": {"hierro": 3, "hielo": 2}, "kind": "building", "stage": 0, "tab": "terraformacion"},
 	"calentador": {"name": "Calentador", "cost": {"hierro": 4, "silicio": 1}, "kind": "building", "stage": 1, "tab": "terraformacion"},
@@ -195,8 +199,7 @@ const MACHINES := {
 const METRICS := ["oxygen", "temperature", "pressure", "biomass"]
 const METRIC_NAMES := {"oxygen": "Oxígeno", "temperature": "Temperatura", "pressure": "Presión", "biomass": "Biomasa"}
 
-# Comida: cuánto quita el hambre cada cosa. Al comer (F) se toma la primera
-# de esta lista que haya en la mochila.
+# Comida: cuánto quita el hambre cada cosa. Se come desde el inventario (I).
 const FOODS := {"verdura": 20.0, "racion": 40.0, "guiso": 100.0}
 
 # Modos de la herramienta de mano, en el orden de las teclas 1, 2 y 3.
@@ -212,6 +215,17 @@ const DRILLS := [
 	{"id": "taladro_termico", "name": "Taladro térmico", "time": 0.45, "yield": 2, "color": Color(0.95, 0.3, 0.15)},
 	{"id": "taladro_plasma", "name": "Taladro de plasma", "time": 0.25, "yield": 3, "color": Color(0.55, 0.4, 1.0)},
 ]
+
+# Mochila: casillas de hasta SLOT_SIZE unidades del mismo tipo. El nivel 0 es la
+# bolsa del traje, con la que se empieza.
+const SLOT_SIZE := 10
+const BACKPACKS := [
+	{"id": "", "name": "Bolsa de traje", "slots": 8},
+	{"id": "mochila", "name": "Mochila", "slots": 12},
+	{"id": "mochila_reforzada", "name": "Mochila reforzada", "slots": 18},
+	{"id": "mochila_aleacion", "name": "Mochila de aleación", "slots": 24},
+]
+const FULL_MESSAGE := "Mochila llena: tira o guarda algo (I)."
 
 const STAGES := [
 	{"name": "Roca muerta", "threshold": 0.0},
@@ -250,6 +264,15 @@ const SHELTER_O2_REFILL := 20.0 # oxígeno por segundo dentro de un módulo
 const LOW_O2_WARNING := 0.2 # fracción de la reserva a la que se avisa
 const COLD_WARNING := 25.0 # por debajo de este calor se avisa al jugador
 const COLD_O2_FACTOR := 3.0 # multiplica el gasto de oxígeno cuando el calor llega a 0
+# Humedad (0 a 100): sube en el agua y bajo la lluvia, y solo baja al sol.
+const WET_MAX := 100.0
+const WET_WATER_RATE := 50.0 # por segundo con el agua por encima de las rodillas
+const WET_RAIN_RATE := 8.0 # por segundo y por intensidad de la lluvia
+const DRY_TIME := 60.0 # segundos al sol para pasar de empapado a seco
+const WET_WARNING := 30.0
+const WADE_DEPTH := 0.4 # metros de agua que mojan; los mismos que frenan al andar
+const CAVE_COLD_FACTOR := 0.35 # en las cuevas se pierde este tanto del frío
+const CAVE_WARM_FACTOR := 0.5 # y de día se recupera calor más despacio
 # Lluvias: desde la etapa RAIN_STAGE cae un chubasco cada RAIN_CYCLE días
 # que dura RAIN_PART de ese tiempo (unos 50 s cada 3 minutos).
 const RAIN_STAGE := 3
@@ -268,8 +291,9 @@ const SLEEP_HUNGER_FACTOR := 0.5
 # Cajas de suministros: probabilidad de que den un fragmento de plano (si
 # queda alguno por reunir) en vez de un chip de datos.
 const FRAGMENT_CHANCE := 0.45
-# Versión del guardado. La 2 añadió las Lluvias entre el Deshielo y Habitable.
-const SAVE_VERSION := 2
+# Versión del guardado. La 2 añadió las Lluvias entre el Deshielo y Habitable;
+# la 3, el nivel de mochila y la humedad.
+const SAVE_VERSION := 3
 const SAVE_PATH := "user://partida.json"
 const AUTOSAVE_TIME := 15.0
 
@@ -277,6 +301,7 @@ var inventory := {"hierro": 0, "silicio": 0, "hielo": 0, "cobre": 0, "agua": 0, 
 		"racion": START_RATIONS, "verdura": 0, "guiso": 0,
 		"titanio": 0, "cuarzo": 0, "iridio": 0, "placa": 0, "circuito": 0, "chip": 0}
 var drill_level := 0 # índice en DRILLS
+var backpack_level := 0 # índice en BACKPACKS
 var has_tank := false
 var has_jetpack := false
 var has_flashlight := false
@@ -313,6 +338,11 @@ var finished := false
 var time_of_day := START_TIME
 var day := 1
 var warmth := WARMTH_MAX
+var wetness := 0.0
+# true mientras el jugador se seca al sol.
+var drying := false
+# Aviso que sale al empezar, por ejemplo tras cargar una partida de antes.
+var pending_notice := ""
 var hunger := HUNGER_MAX
 # Energía guardada en todas las baterías juntas.
 var battery_charge := 0.0
@@ -326,6 +356,10 @@ var _was_cold := false
 var _was_frozen := false
 var _was_low_oxygen := false
 var _was_raining := false
+var _was_in_cave := false
+var _was_wet := false
+var _was_drying := false
+var _was_nearly_full := false
 # true desde que el jugador muere hasta que vuelve a la base.
 var dead := false
 # true mientras se muestra la pantalla de título: aún no se ha empezado a jugar.
@@ -362,6 +396,7 @@ var _js_visibility_callback
 
 func _ready() -> void:
 	_setup_input()
+	inventory_changed.connect(_check_backpack)
 	if OS.has_feature("web"):
 		_js_visibility_callback = JavaScriptBridge.create_callback(_on_web_visibility_change)
 		var document = JavaScriptBridge.get_interface("document")
@@ -398,7 +433,7 @@ func _process(delta: float) -> void:
 		player_oxygen -= drain * delta
 	var low_oxygen := player_oxygen <= player_o2_max() * LOW_O2_WARNING
 	if low_oxygen and not _was_low_oxygen:
-		message.emit("Oxígeno bajo: usa una botella (Q).")
+		message.emit("Oxígeno bajo: usa una botella desde el inventario (I).")
 		Sfx.play("alarma")
 	_was_low_oxygen = low_oxygen
 	if player_oxygen <= 0.0:
@@ -417,6 +452,10 @@ func respawn() -> void:
 	player_oxygen = player_o2_max()
 	warmth = WARMTH_MAX
 	hunger = HUNGER_MAX
+	wetness = 0.0
+	_was_wet = false
+	_was_drying = false
+	drying = false
 	_starve_time = 0.0
 	_was_hungry = false
 	_was_cold = false
@@ -453,11 +492,25 @@ func _update_day_and_cold(delta: float) -> void:
 		message.emit("Amanece.")
 	_was_night = night
 
-	if night and not sheltered and not _near_heater():
-		# Cuanto más caliente está el planeta, menos frío hace de noche.
-		warmth -= WARMTH_DRAIN * (1.0 - temperature / 100.0) * cold_factor * delta
-	else:
+	_update_wetness(delta)
+	var in_cave_now := in_cave
+	if in_cave_now and not _was_in_cave:
+		message.emit("En la cueva hace menos frío, pero no te secas.")
+	_was_in_cave = in_cave_now
+
+	# Cuanto más caliente está el planeta, menos frío hace de noche.
+	var chill := WARMTH_DRAIN * (1.0 - temperature / 100.0) * cold_factor * (CAVE_COLD_FACTOR if in_cave else 1.0)
+	var wet := wetness / WET_MAX
+	if sheltered or _near_heater():
 		warmth += WARMTH_REGEN * delta
+	elif night:
+		warmth -= chill * (1.0 + wet) * delta
+	elif wetness > 0.0:
+		# De día mojado no se recupera calor: se pierde la mitad del ritmo
+		# nocturno por lo mojado que se esté, hasta secarse del todo.
+		warmth -= chill * 0.5 * wet * delta
+	else:
+		warmth += WARMTH_REGEN * (CAVE_WARM_FACTOR if in_cave else 1.0) * delta
 	warmth = clampf(warmth, 0.0, WARMTH_MAX)
 
 	var cold := warmth <= COLD_WARNING
@@ -470,6 +523,46 @@ func _update_day_and_cold(delta: float) -> void:
 	if frozen and not _was_frozen:
 		message.emit("Estás helado: gastas oxígeno el triple de rápido.")
 	_was_frozen = frozen
+
+
+## La humedad sube con el agua por encima de las rodillas y bajo la lluvia
+## (fuera de la base y de las cuevas) y solo baja al sol: de día, sin llover,
+## fuera de la base, de las cuevas y del agua.
+func _update_wetness(delta: float) -> void:
+	var player = get_tree().get_first_node_in_group("player")
+	var in_water: bool = player != null and player.world != null \
+			and player.world.water_depth(player.global_position) > WADE_DEPTH
+	var outside := not sheltered and not in_cave
+	var raining := is_raining()
+	drying = false
+	if in_water:
+		wetness += WET_WATER_RATE * delta
+	elif outside and raining:
+		wetness += WET_RAIN_RATE * rain() * delta
+	elif outside and not is_night() and wetness > 0.0:
+		wetness -= WET_MAX / DRY_TIME * delta
+		drying = true
+	wetness = clampf(wetness, 0.0, WET_MAX)
+	if wetness >= WET_WARNING and not _was_wet:
+		_was_wet = true
+		message.emit("Te has mojado: pasarás más frío hasta secarte al sol.")
+	if drying and not _was_drying:
+		message.emit("Al sol: te estás secando.")
+	if wetness <= 0.0 and _was_wet:
+		_was_wet = false
+		message.emit("Ya estás seco.")
+	_was_drying = drying
+
+
+## Línea de estado bajo las barras: dónde se pasa menos frío o por qué más.
+func cold_status() -> String:
+	if drying:
+		return "Secando al sol"
+	if wetness > 0.0:
+		return "Mojado: más frío"
+	if in_cave:
+		return "En cueva: menos frío"
+	return ""
 
 
 ## Intensidad de la lluvia, de 0 (no llueve) a 1. Va por la hora del juego,
@@ -526,34 +619,101 @@ func _update_hunger(delta: float) -> void:
 	hunger = maxf(0.0, hunger - HUNGER_DRAIN * delta)
 	var hungry := hunger <= HUNGER_WARNING
 	if hungry and not _was_hungry:
-		message.emit("Tienes hambre: come algo (F).")
+		message.emit("Tienes hambre: come algo desde el inventario (I).")
 		Sfx.play("alarma")
 	_was_hungry = hungry
 	if hunger > 0.0:
 		_starve_time = 0.0
 		return
 	if _starve_time == 0.0:
-		message.emit("Te mueres de hambre: come algo antes de %d segundos (F)." % int(STARVE_TIME))
+		message.emit("Te mueres de hambre: come algo antes de %d segundos (inventario: I)." % int(STARVE_TIME))
 		Sfx.play("alarma")
 	_starve_time += delta
 	if _starve_time >= STARVE_TIME:
 		_die("Te desmayaste de hambre.")
 
 
-## Come lo primero de FOODS que haya en la mochila.
-func eat() -> void:
-	if hunger >= HUNGER_MAX - 1.0:
-		message.emit("No tienes hambre.")
-		return
-	for id in FOODS:
-		if int(inventory.get(id, 0)) > 0:
-			inventory[id] = int(inventory[id]) - 1
-			hunger = minf(HUNGER_MAX, hunger + float(FOODS[id]))
-			Sfx.play("recoger")
-			message.emit("Comes: %s." % String(RESOURCE_NAMES[id]).to_lower())
-			inventory_changed.emit()
-			return
-	message.emit("No tienes comida: cultívala en un bancal.")
+## Usa un objeto del inventario: una botella, o comida. Devuelve true si se ha gastado.
+func use_item(id: String) -> bool:
+	if int(inventory.get(id, 0)) <= 0:
+		return false
+	if FOODS.has(id):
+		if hunger >= HUNGER_MAX - 1.0:
+			message.emit("No tienes hambre.")
+			return false
+		hunger = minf(HUNGER_MAX, hunger + float(FOODS[id]))
+		message.emit("Comes: %s." % String(RESOURCE_NAMES[id]).to_lower())
+	elif id == "botella":
+		if player_oxygen >= player_o2_max() - 1.0:
+			message.emit("Tu oxígeno ya está al máximo.")
+			return false
+		player_oxygen = minf(player_o2_max(), player_oxygen + BOTTLE_REFILL)
+	else:
+		return false
+	inventory[id] = int(inventory[id]) - 1
+	Sfx.play("recoger")
+	inventory_changed.emit()
+	return true
+
+
+## true si el objeto se puede usar desde el inventario.
+func is_usable(id: String) -> bool:
+	return FOODS.has(id) or id == "botella"
+
+
+## Casillas que ocupa lo que lleva "counts" ({objeto: unidades}).
+func slots_for(counts: Dictionary) -> int:
+	var slots := 0
+	for id in counts:
+		slots += ceili(maxi(0, int(counts[id])) / float(SLOT_SIZE))
+	return slots
+
+
+func slots_max() -> int:
+	return int(BACKPACKS[backpack_level]["slots"])
+
+
+func slots_used() -> int:
+	return slots_for(inventory)
+
+
+func slots_free() -> int:
+	return slots_max() - slots_used()
+
+
+## Cuántas unidades de "id" caben todavía: primero las casillas a medias de
+## ese tipo y luego las libres.
+func room_for(id: String) -> int:
+	var free := slots_free()
+	if free < 0:
+		return 0
+	var have := int(inventory.get(id, 0))
+	return free * SLOT_SIZE + (SLOT_SIZE - have % SLOT_SIZE) % SLOT_SIZE
+
+
+## Casillas que faltarían para guardar "extra" ({objeto: unidades}) además de
+## lo que ya se lleva; 0 si cabe.
+func slots_missing(extra: Dictionary) -> int:
+	var counts := inventory.duplicate()
+	for id in extra:
+		counts[id] = int(counts.get(id, 0)) + int(extra[id])
+	return maxi(0, slots_for(counts) - slots_max())
+
+
+## Guarda hasta "amount" unidades y devuelve cuántas han cabido.
+func give(id: String, amount: int) -> int:
+	var added := mini(amount, room_for(id))
+	if added > 0:
+		add_item(id, added)
+	return added
+
+
+## Avisa una sola vez al quedar una sola casilla libre.
+func _check_backpack() -> void:
+	var nearly := slots_free() == 1
+	if nearly and not _was_nearly_full:
+		message.emit("Mochila casi llena: queda 1 casilla.")
+	_was_nearly_full = slots_free() <= 1
 
 
 func _near_heater() -> bool:
@@ -744,10 +904,16 @@ func missing_blueprints() -> Array:
 func open_crate(id: String) -> void:
 	if id in opened_crates:
 		return
+	var missing := missing_blueprints()
+	var fragment := not missing.is_empty() and randf() < FRAGMENT_CHANCE
+	# Los fragmentos no ocupan casilla, pero un chip sí: si no cabe, la caja
+	# se queda cerrada.
+	if not fragment and room_for("chip") < 1:
+		message.emit(FULL_MESSAGE)
+		return
 	opened_crates.append(id)
 	Sfx.play("craftear")
-	var missing := missing_blueprints()
-	if not missing.is_empty() and randf() < FRAGMENT_CHANCE:
+	if fragment:
 		var blueprint: String = missing[randi() % missing.size()]
 		fragments[blueprint] = int(fragments.get(blueprint, 0)) + 1
 		var need := int(RECIPES[blueprint]["unlock"]["fragments"])
@@ -820,11 +986,22 @@ func can_craft(id: String) -> bool:
 	var drill := drill_index(id)
 	if drill > 0 and drill_level != drill - 1:
 		return false # ya lo tiene, o le falta el taladro anterior
+	var pack := backpack_index(id)
+	if pack > 0 and backpack_level != pack - 1:
+		return false # ya la tiene, o le falta la anterior
 	if (id == "tanque" and has_tank) or (id == "jetpack" and has_jetpack) or (id == "linterna" and has_flashlight):
 		return false
 	var cost: Dictionary = RECIPES[id]["cost"]
 	for res in cost:
 		if int(inventory.get(res, 0)) < int(cost[res]):
+			return false
+	if String(RECIPES[id]["kind"]) == "consumable":
+		# Tras gastar los materiales tiene que caber el resultado.
+		var counts := inventory.duplicate()
+		for res in cost:
+			counts[res] = int(counts[res]) - int(cost[res])
+		counts[id] = int(counts.get(id, 0)) + 1
+		if slots_for(counts) > slots_max():
 			return false
 	return true
 
@@ -854,6 +1031,9 @@ func craft(id: String) -> bool:
 				has_flashlight = true
 				flashlight_on = true
 				message.emit("Linterna: L para encenderla o apagarla.")
+			elif backpack_index(id) > 0:
+				backpack_level = backpack_index(id)
+				message.emit("%s: ahora tienes %d casillas." % [BACKPACKS[backpack_level]["name"], slots_max()])
 			elif drill_index(id) > 0:
 				drill_level = drill_index(id)
 				var drill: Dictionary = DRILLS[drill_level]
@@ -868,6 +1048,14 @@ func craft(id: String) -> bool:
 func drill_index(id: String) -> int:
 	for i in range(1, DRILLS.size()):
 		if DRILLS[i]["id"] == id:
+			return i
+	return 0
+
+
+## Nivel de mochila que da la receta id, o 0 si no es una mochila.
+func backpack_index(id: String) -> int:
+	for i in range(1, BACKPACKS.size()):
+		if BACKPACKS[i]["id"] == id:
 			return i
 	return 0
 
@@ -890,15 +1078,6 @@ func pay(id: String) -> bool:
 		inventory[res] = int(inventory[res]) - int(cost[res])
 	inventory_changed.emit()
 	return true
-
-
-func use_bottle() -> void:
-	if int(inventory.get("botella", 0)) <= 0:
-		message.emit("No tienes botellas de oxígeno.")
-		return
-	inventory["botella"] = int(inventory["botella"]) - 1
-	player_oxygen = minf(player_o2_max(), player_oxygen + BOTTLE_REFILL)
-	inventory_changed.emit()
 
 
 ## Apunta una construcción para el guardado y devuelve su entrada.
@@ -992,6 +1171,7 @@ func save_game() -> void:
 		"version": SAVE_VERSION,
 		"inventory": inventory,
 		"drill_level": drill_level,
+		"backpack_level": backpack_level,
 		"has_tank": has_tank,
 		"has_jetpack": has_jetpack,
 		"has_flashlight": has_flashlight,
@@ -1012,6 +1192,7 @@ func save_game() -> void:
 		"day": day,
 		"warmth": warmth,
 		"hunger": hunger,
+		"wetness": wetness,
 		"battery_charge": battery_charge,
 		"finished": finished,
 		"machines": machines,
@@ -1059,6 +1240,16 @@ func load_game() -> bool:
 		inventory[id] = int(saved_inventory.get(id, 0))
 	# Las partidas de antes de los niveles solo guardaban si había taladro mejorado.
 	drill_level = clampi(int(data.get("drill_level", 1 if data.get("has_drill", false) else 0)), 0, DRILLS.size() - 1)
+	if data.has("backpack_level"):
+		backpack_level = clampi(int(data["backpack_level"]), 0, BACKPACKS.size() - 1)
+	else:
+		# Una partida de antes de la mochila recibe gratis la más pequeña en la
+		# que quepa lo que lleva.
+		var needed := slots_used()
+		while backpack_level < BACKPACKS.size() - 1 and slots_max() < needed:
+			backpack_level += 1
+		if needed > slots_max():
+			pending_notice = "Llevas más de %d casillas: no podrás recoger nada hasta tirar o guardar algo (I)." % slots_max()
 	has_tank = bool(data.get("has_tank", false))
 	has_jetpack = bool(data.get("has_jetpack", false))
 	has_flashlight = bool(data.get("has_flashlight", false))
@@ -1097,6 +1288,11 @@ func load_game() -> bool:
 	day = int(data.get("day", 1))
 	warmth = float(data.get("warmth", WARMTH_MAX))
 	hunger = float(data.get("hunger", HUNGER_MAX))
+	wetness = clampf(float(data.get("wetness", 0.0)), 0.0, WET_MAX)
+	_was_wet = wetness >= WET_WARNING
+	_was_nearly_full = slots_free() <= 1
+	if int(data.get("version", 1)) < 3 and pending_notice == "":
+		pending_notice = "Novedad: inventario con I; Q y F ya no se usan. Mojarse da frío."
 	battery_charge = float(data.get("battery_charge", 0.0))
 	_was_hungry = hunger <= HUNGER_WARNING
 	if not data.has("hunger"):
@@ -1141,6 +1337,7 @@ func _reset_state() -> void:
 		inventory[id] = 0
 	inventory["racion"] = START_RATIONS
 	drill_level = 0
+	backpack_level = 0
 	has_tank = false
 	has_jetpack = false
 	has_flashlight = false
@@ -1167,6 +1364,13 @@ func _reset_state() -> void:
 	day = 1
 	warmth = WARMTH_MAX
 	hunger = HUNGER_MAX
+	wetness = 0.0
+	drying = false
+	pending_notice = ""
+	_was_in_cave = false
+	_was_wet = false
+	_was_drying = false
+	_was_nearly_full = false
 	battery_charge = 0.0
 	_battery_output = 0
 	_starve_time = 0.0
@@ -1198,8 +1402,7 @@ func _setup_input() -> void:
 	_add_key("move_right", [KEY_D, KEY_RIGHT])
 	_add_key("jump", [KEY_SPACE])
 	_add_key("craft", [KEY_TAB, KEY_C])
-	_add_key("use_bottle", [KEY_Q])
-	_add_key("eat", [KEY_F])
+	_add_key("inventory", [KEY_I])
 	_add_key("pause", [KEY_ESCAPE])
 	_add_key("rotate_building", [KEY_R])
 	_add_key("interact", [KEY_E])

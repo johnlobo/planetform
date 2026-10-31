@@ -26,8 +26,7 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
 | E | Abrir la taquilla, la bomba de agua, el bancal, el extractor o la estación de drones que miras; dormir en la cama; usar el terminal o el telepuerto; abrir una caja de suministros; subir al róver y bajar de él |
 | L | Encender y apagar la linterna |
 | W S / A D (en el róver) | Acelerar y frenar o marcha atrás / girar; Espacio es el freno |
-| Q | Usar una botella de oxígeno |
-| F | Comer (verduras, raciones o guiso) |
+| I | Abrir y cerrar el inventario: la mochila por casillas, usar botellas y comida, tirar objetos y ver el equipo |
 | Esc | Cerrar el menú, la taquilla o la colocación que tengas abierta; si no hay nada abierto, pausa (y suelta el ratón) |
 | R / rueda del ratón | Girar lo que estás colocando |
 | Clic derecho o Esc | Cancelar la colocación |
@@ -98,12 +97,22 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
   Sin energía se quedan en sus plataformas.
 - **Biomasa:** las **semillas de musgo** (1 agua + 1 silicio) se plantan fuera con el menú de construcción. El musgo crece
   solo, no gasta energía y sube la biomasa. El **bancal de cultivo** (con lámpara) la sube el triple pero gasta 1 de energía; va bien dentro de la base.
-- **Comida y hambre:** la barra de **comida** se vacía en 12 minutos (tres días), también dentro de la base. Con **F** comes:
-  primero verduras (+20), luego raciones (+40) y luego guiso (+100). Si la barra llega a 0 tienes 60 segundos para comer o te desmayas.
+- **Comida y hambre:** la barra de **comida** se vacía en 12 minutos (tres días), también dentro de la base. Comes desde el **inventario** (I):
+  verduras (+20), raciones (+40) o guiso (+100), la que elijas. Si la barra llega a 0 tienes 60 segundos para comer o te desmayas.
   Empiezas con 5 **raciones de emergencia**. El **bancal de cultivo** da 1 de **verduras** cada 20 s con toda la energía (guarda hasta 12;
   se ven los frutos rojos y se abre con E para sacarlas). Con 3 verduras + 1 agua se fabrica un **guiso**, que llena la barra entera.
 - **Día y noche:** un día dura 4 minutos. De noche tu **calor** baja (menos cuanto más caliente está el planeta)
   salvo si estás a menos de 8 m de un calentador con energía; de día se recupera. Si el calor llega a 0, gastas oxígeno el triple de rápido.
+- **Cuevas y humedad:** dentro de una cueva se pasa un 35 % del frío (y de día el calor sube a la mitad de ritmo). Con el agua por encima
+  de las rodillas, o bajo la lluvia fuera de la base y de las cuevas, sube la barra de **humedad**: empapado se pasa el doble de frío
+  de noche y de día no se recupera calor. Solo se seca uno **al sol** (de día, sin llover, fuera de la base, de las cuevas y del agua):
+  60 segundos de empapado a seco. La base y los calentadores dan calor, pero no secan.
+- **Mochila e inventario (I):** la mochila es una rejilla de **casillas** de hasta 10 unidades del mismo tipo. Empiezas con una bolsa de
+  traje de 8 casillas y la fabricas más grande: **Mochila** (3 hierro + 2 silicio, 12 casillas), **Mochila reforzada**
+  (4 hierro + 3 cobre + 2 silicio, Deshielo, 18) y **Mochila de aleación** (2 placas + 1 circuito, tras recoger titanio, 24). Cada una
+  sustituye a la anterior. El equipo (taladro, mochila, tanque, propulsores y linterna) no ocupa casillas. Con la mochila llena no se
+  mina (lo que no cabe se queda en el depósito), no se fabrica ni se saca de una taquilla más de lo que cabe, y no se desmonta algo si
+  lo devuelto no cabe. Desde el inventario se usan las botellas y la comida (botón o doble clic) y se tira lo que sobra.
 - **Colocar:** lo que se construye no aparece solo: una silueta sigue tu mirada, verde donde se puede construir y roja donde no
   (el motivo sale en el centro). Se paga al colocarlo, así que cancelar no cuesta nada.
 - **Base:** el **módulo de hábitat** es una caja de 4 × 4 m. Si miras un módulo al colocar otro, se encaja a su lado y la pared
@@ -132,7 +141,7 @@ El proyecto usa el renderizador **Compatibility** para que la misma versión fun
   1 cada 15 s con energía (gasta 1) hasta 15 guardados; se vacía con E.
 - **Batería** (Primera neblina, 3 hierro + 3 cobre + 1 silicio): guarda la energía que sobra (hasta 2 por segundo) y la da cuando falta,
   por ejemplo de noche. Cada una guarda lo justo para tener 1 de energía durante una noche entera. La carga sale en la esquina.
-- Tu oxígeno baja con el tiempo; las **botellas** lo recargan. Si llega a cero, mueres.
+- Tu oxígeno baja con el tiempo; las **botellas** (desde el inventario) lo recargan. Si llega a cero, mueres.
 - Al morir, la pantalla se funde a negro en 3 segundos y sale **GAME OVER**; con Enter vuelves a la base con el oxígeno, el calor y la comida al máximo.
 - **Lluvias** (75 %): aparecen nubes, el cielo se vuelve azul y los bosques del mapa empiezan a crecer. Cada 3 minutos de juego cae
   un chubasco de unos 50 s (gotas, cielo gris, más niebla y sonido de lluvia). Mientras llueve, el musgo y los árboles suben la biomasa

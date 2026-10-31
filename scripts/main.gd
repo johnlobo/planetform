@@ -661,6 +661,20 @@ func dismantle(target: Object) -> bool:
 		Game.message.emit("No se puede desmontar: %s." % info["reason"])
 		return false
 	var node: Node3D = info["node"]
+	# Todo lo que vuelve (materiales y lo guardado dentro) tiene que caber.
+	var returned: Dictionary = info["refund"].duplicate()
+	var stored := {}
+	if node is Machine and (node as Machine).is_storage():
+		stored = (node as Machine).items()
+	elif node is Rover:
+		stored = (node as Rover).items()
+	for id in stored:
+		returned[id] = int(returned.get(id, 0)) + int(stored[id])
+	var missing := Game.slots_missing(returned)
+	if missing > 0:
+		Sfx.play("alarma", 0.0, -12.0)
+		Game.message.emit("No cabe en la mochila: faltan %d %s." % [missing, "casilla" if missing == 1 else "casillas"])
+		return false
 	if node is Machine:
 		var machine := node as Machine
 		if machine.is_storage():

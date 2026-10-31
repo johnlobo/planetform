@@ -12,5 +12,5 @@ func get_hint() -> String:
 
 
 # El taladro multiplica lo recogido, como en los depósitos.
-func harvest(multiplier: int) -> int:
-	return AMOUNT * multiplier
+func harvest(multiplier: int, room := 1 << 30) -> int:
+	return mini(AMOUNT * multiplier, room)

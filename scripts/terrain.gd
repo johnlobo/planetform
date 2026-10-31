@@ -106,6 +106,7 @@ var plants_visible := false:
 		for chunk in _chunks.values():
 			if chunk["trees"]:
 				chunk["trees"].visible = value
+				_set_trees_solid(chunk["trees"], value)
 
 var noise := FastNoiseLite.new()
 var _hills := FastNoiseLite.new()
@@ -122,6 +123,8 @@ var world_seed := 0
 var _chunks := {}
 var _tree_meshes: Array[Mesh] = []
 var _boulder_mesh: Mesh
+# Vértices de la malla de las rocas grandes, para darles la misma forma al chocar.
+var _boulder_hull := PackedVector3Array()
 var _deco_material := StandardMaterial3D.new()
 var _check_time := 0.0
 # Sitio recóndito del trozo que se está preparando.
@@ -765,6 +768,13 @@ func _slope(x: float, z: float) -> float:
 	return Vector3(-dx, 2.0, -dz).normalized().y
 
 
+## Los árboles solo chocan mientras se ven: con ellos ocultos se pasa de largo.
+func _set_trees_solid(trees: Node3D, solid: bool) -> void:
+	var collider := trees.get_node_or_null("Collision") as StaticBody3D
+	if collider:
+		collider.collision_layer = 1 if solid else 0
+
+
 ## Árboles y arbustos del trozo, juntos en bosques. Están ocultos hasta que la
 ## biomasa los hace crecer (plants_visible).
 func _plant_trees(detail: Node3D, center: Vector3, rng: RandomNumberGenerator) -> Node3D:
@@ -789,11 +799,36 @@ func _plant_trees(detail: Node3D, center: Vector3, rng: RandomNumberGenerator) -
 		lists[kind].append([xform, shade])
 	var trees := Node3D.new()
 	trees.visible = plants_visible
+	var collider := StaticBody3D.new()
+	collider.name = "Collision"
 	for k in lists.size():
-		if not lists[k].is_empty():
-			trees.add_child(_multimesh(_tree_meshes[k], lists[k]))
+		if lists[k].is_empty():
+			continue
+		trees.add_child(_multimesh(_tree_meshes[k], lists[k]))
+		for entry in lists[k]:
+			collider.add_child(_tree_collision(k, entry[0]))
+	trees.add_child(collider)
+	_set_trees_solid(trees, plants_visible)
 	detail.add_child(trees)
 	return trees
+
+
+## Forma con la que se choca con un árbol: el tronco (un cilindro) o, en el
+## arbusto, la mata entera. Crece con el tamaño del árbol.
+func _tree_collision(kind: int, xform: Transform3D) -> CollisionShape3D:
+	var size := xform.basis.get_scale().x
+	var shape := CylinderShape3D.new()
+	var height := 3.0 * size
+	if kind == _tree_meshes.size() - 1:
+		shape.radius = 0.6 * size
+		height = 0.8 * size
+	else:
+		shape.radius = 0.22 * size
+	shape.height = height
+	var collision := CollisionShape3D.new()
+	collision.shape = shape
+	collision.position = xform.origin + Vector3(0, height / 2.0, 0)
+	return collision
 
 
 ## Rocas grandes que no se recogen; más en las montañas.
@@ -814,11 +849,15 @@ func _place_boulders(detail: Node3D, center: Vector3, rng: RandomNumberGenerator
 			continue
 		var basis := Basis(Vector3.UP, turn).scaled(stretch * size)
 		list.append([Transform3D(basis, Vector3(x, y - 0.3 * size, z) - center), Color(shade * rock.r, shade * rock.g, shade * rock.b)])
-		var sphere := SphereShape3D.new()
-		sphere.radius = 0.75 * size * minf(stretch.x, stretch.z)
+		# Misma forma que la malla (sin la parte hundida en el suelo no se nota).
+		var xform := list[list.size() - 1][0] as Transform3D
+		var points := PackedVector3Array()
+		for point in _boulder_hull:
+			points.append(xform * point)
+		var shape := ConvexPolygonShape3D.new()
+		shape.points = points
 		var collision := CollisionShape3D.new()
-		collision.shape = sphere
-		collision.position = Vector3(x, y, z) - center
+		collision.shape = shape
 		rocks.add_child(collision)
 	if list.is_empty():
 		rocks.free()
@@ -906,6 +945,7 @@ func _build_deco_meshes() -> void:
 	parts = [[_sphere(0.7, 1.0, 6, 3), Vector3(0, 0.35, 0), green.darkened(0.1), 0.2]]
 	_tree_meshes.append(_combine(parts, rng))
 	_boulder_mesh = _combine([[_sphere(1.0, 1.6, 8, 5), Vector3(0, 0.5, 0), Color(0.42, 0.39, 0.37), 0.25]], rng)
+	_boulder_hull = (_boulder_mesh.create_convex_shape(true, false) as ConvexPolygonShape3D).points
 
 
 func _cylinder(top: float, bottom: float, height: float) -> PrimitiveMesh:

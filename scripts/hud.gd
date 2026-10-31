@@ -1,6 +1,6 @@
 extends CanvasLayer
-## Interfaz: inventario, estado del planeta, oxígeno del jugador, modo de la
-## herramienta, el menú de fabricar y construir y el panel de la taquilla.
+## Interfaz: estado del planeta, barras del jugador, modo de la herramienta,
+## el menú de fabricar y construir, el inventario y el panel de la taquilla.
 
 const Icons := preload("res://scripts/icons.gd")
 const Machine := preload("res://scripts/machine.gd")
@@ -12,8 +12,8 @@ const ICON_SIZE := 56
 const CELL_SIZE := Vector2(ICON_SIZE + 50, ICON_SIZE + 66)
 const MENU_COLUMNS := 11
 const SECTION_NAMES := {"fabricar": "Fabricar", "construccion": "Construcción", "tecnologia": "Tecnología", "terraformacion": "Terraformación"}
-# Lo que no sale en el inventario mientras no se tenga.
-const HIDDEN_WHEN_EMPTY := ["titanio", "cuarzo", "iridio", "placa", "circuito", "chip"]
+const INVENTORY_COLUMNS := 6
+const SLOT_SIZE := Vector2(76, 76)
 const MODE_COLORS := {
 	"recoger": Color(1.0, 0.85, 0.55),
 	"construir": Color(0.55, 0.88, 1.0),
@@ -25,11 +25,13 @@ const MAP_SIZE := 520.0 # lado del mapa en pantalla
 const SITE_MARKS := {"cueva": Color(1.0, 0.6, 0.15), "nave": Color(0.3, 0.95, 1.0), "crater": Color(1.0, 1.0, 1.0)}
 const SITE_NAMES := {"cueva": "Cueva", "nave": "Resto de nave", "crater": "Cráter"}
 
-var inventory_label: Label
 var planet_label: Label
 var oxygen_bar: ProgressBar
 var warmth_bar: ProgressBar
 var hunger_bar: ProgressBar
+var wet_title: Label
+var wet_bar: ProgressBar
+var cold_label: Label
 var jetpack_title: Label
 var jetpack_bar: ProgressBar
 var hint_label: Label
@@ -39,6 +41,17 @@ var menu_sections: VBoxContainer
 var menu_scroll: ScrollContainer
 # Título de cada sección del menú, para desplazarse hasta ella.
 var _section_headers := {}
+var inventory_panel: PanelContainer
+var inventory_title: Label
+var inventory_bar: ProgressBar
+var inventory_grid: GridContainer
+var inventory_detail: VBoxContainer
+var inventory_equipment: HBoxContainer
+# Objeto elegido en el inventario, el que pidió tirar todo (a la espera de
+# confirmar) y si se ordena por nombre en vez de por tipo.
+var _inv_selected := ""
+var _inv_confirm := ""
+var _inv_sort_by_name := false
 var locker_panel: PanelContainer
 var locker_title: Label
 var locker_inventory: VBoxContainer
@@ -69,8 +82,6 @@ var _waiting_respawn := false
 func _ready() -> void:
 	# El HUD sigue activo con el juego en pausa para la pantalla de game over.
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	inventory_label = _label(Control.PRESET_TOP_LEFT, Vector2(16, 16))
-
 	planet_label = _label(Control.PRESET_TOP_RIGHT, Vector2(-16, 16))
 	planet_label.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	planet_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -109,7 +120,7 @@ func _ready() -> void:
 	help.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	help.offset_left = 16
 	help.offset_bottom = -16
-	help.text = "WASD mover · Espacio saltar · Clic usar herramienta (mantén para minar) · 1 2 3 o rueda cambiar modo\nTab fabricar y construir · E usar, abrir o subir al róver · Q usar botella · F comer · L linterna · R girar · Esc cerrar o pausa"
+	help.text = "WASD mover · Espacio saltar · Clic usar herramienta (mantén para minar) · 1 2 3 o rueda cambiar modo\nTab fabricar y construir · I inventario · E usar, abrir o subir al róver · L linterna · R girar · Esc cerrar o pausa"
 
 	_build_mode_bar()
 
@@ -145,6 +156,18 @@ func _ready() -> void:
 	hunger_bar.custom_minimum_size = Vector2(300, 20)
 	hunger_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	oxygen_box.add_child(hunger_bar)
+	wet_title = Label.new()
+	wet_title.text = "Tu humedad"
+	oxygen_box.add_child(wet_title)
+	wet_bar = ProgressBar.new()
+	wet_bar.max_value = Game.WET_MAX
+	wet_bar.show_percentage = false
+	wet_bar.custom_minimum_size = Vector2(300, 12)
+	wet_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var wet_fill := StyleBoxFlat.new()
+	wet_fill.bg_color = Color(0.3, 0.6, 1.0)
+	wet_bar.add_theme_stylebox_override("fill", wet_fill)
+	oxygen_box.add_child(wet_bar)
 	jetpack_title = Label.new()
 	jetpack_title.text = "Propulsores"
 	oxygen_box.add_child(jetpack_title)
@@ -153,9 +176,14 @@ func _ready() -> void:
 	jetpack_bar.custom_minimum_size = Vector2(300, 20)
 	jetpack_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	oxygen_box.add_child(jetpack_bar)
+	# Una línea de estado cuando aplica: cueva, mojado o secándose.
+	cold_label = Label.new()
+	cold_label.add_theme_color_override("font_color", Color(0.6, 0.85, 1.0))
+	oxygen_box.add_child(cold_label)
 	add_child(oxygen_box)
 
 	_build_menu_panel()
+	_build_inventory_panel()
 	_build_locker_panel()
 	_build_research_panel()
 	_build_map_panel()
@@ -163,9 +191,9 @@ func _ready() -> void:
 	icons = Icons.new()
 	add_child(icons)
 	icons.finished.connect(_on_icons_finished)
-	icons.render(Game.RECIPES.keys())
+	icons.render(Game.RECIPES.keys() + Icons.EXTRA)
 
-	Game.inventory_changed.connect(_refresh_inventory)
+	Game.inventory_changed.connect(_on_inventory_changed)
 	Game.message.connect(_show_message)
 	Game.player_died.connect(_on_player_died)
 	Game.tool_changed.connect(_on_tool_changed)
@@ -174,7 +202,9 @@ func _ready() -> void:
 	Game.locker_requested.connect(_on_locker_requested)
 	Game.research_requested.connect(_on_research_requested)
 	_on_tool_changed(Game.tool_mode)
-	_refresh_inventory()
+	if Game.pending_notice != "":
+		_show_message(Game.pending_notice)
+		Game.pending_notice = ""
 
 
 func _input(event: InputEvent) -> void:
@@ -189,11 +219,15 @@ func _input(event: InputEvent) -> void:
 		var right_click: bool = event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT
 		if event.is_action_pressed("craft") or event.is_action_pressed("pause") \
 				or (event.is_action_pressed("map") and _open_panel == map_panel) \
-				or (event.is_action_pressed("interact") and _open_panel in [locker_panel, research_panel]) or right_click:
+				or (event.is_action_pressed("inventory") and _open_panel == inventory_panel) \
+			or (event.is_action_pressed("interact") and _open_panel in [locker_panel, research_panel]) or right_click:
 			_close_panel()
 			get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("craft") and not get_tree().paused:
 		_show_menu("")
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("inventory") and not get_tree().paused and not Game.placing:
+		_show_panel(inventory_panel)
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("map") and not get_tree().paused and not Game.placing:
 		_on_map_requested()
@@ -215,6 +249,11 @@ func _process(delta: float) -> void:
 	oxygen_bar.value = Game.player_oxygen
 	warmth_bar.value = Game.warmth
 	hunger_bar.value = Game.hunger
+	wet_title.visible = Game.wetness > 0.0
+	wet_bar.visible = wet_title.visible
+	wet_bar.value = Game.wetness
+	cold_label.text = Game.cold_status()
+	cold_label.visible = cold_label.text != ""
 	jetpack_title.visible = Game.has_jetpack
 	jetpack_bar.visible = Game.has_jetpack
 	jetpack_bar.value = Game.jetpack_fuel
@@ -339,6 +378,265 @@ func _panel(title_text: String) -> Array:
 	return [panel, box, title]
 
 
+## Inventario: la rejilla de casillas de la mochila, la ficha del objeto
+## elegido (usar y tirar) y el equipo que se lleva puesto.
+func _build_inventory_panel() -> void:
+	var parts := _panel("")
+	inventory_panel = parts[0]
+	inventory_title = parts[2]
+	inventory_title.add_theme_font_size_override("font_size", 18)
+	inventory_bar = ProgressBar.new()
+	inventory_bar.custom_minimum_size = Vector2(0, 14)
+	inventory_bar.show_percentage = false
+	inventory_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parts[1].add_child(inventory_bar)
+	var columns := HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 24)
+	parts[1].add_child(columns)
+	inventory_grid = GridContainer.new()
+	inventory_grid.columns = INVENTORY_COLUMNS
+	inventory_grid.add_theme_constant_override("h_separation", 6)
+	inventory_grid.add_theme_constant_override("v_separation", 6)
+	columns.add_child(inventory_grid)
+	inventory_detail = VBoxContainer.new()
+	inventory_detail.custom_minimum_size.x = 260
+	inventory_detail.add_theme_constant_override("separation", 8)
+	columns.add_child(inventory_detail)
+	parts[1].add_child(HSeparator.new())
+	parts[1].add_child(_small_heading("Equipo"))
+	inventory_equipment = HBoxContainer.new()
+	inventory_equipment.add_theme_constant_override("separation", 14)
+	parts[1].add_child(inventory_equipment)
+
+
+func _refresh_inventory_panel() -> void:
+	var used := Game.slots_used()
+	var total := Game.slots_max()
+	var free := total - used
+	inventory_title.text = "Mochila: %d / %d casillas · I, clic derecho o Esc para cerrar" % [used, total]
+	inventory_bar.max_value = total
+	inventory_bar.value = mini(used, total)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = Color(0.9, 0.25, 0.2) if free <= 0 else (Color(1.0, 0.65, 0.2) if free == 1 else Color(0.55, 0.88, 1.0))
+	inventory_bar.add_theme_stylebox_override("fill", fill)
+	var ids := []
+	for id in Game.inventory:
+		if int(Game.inventory[id]) > 0:
+			ids.append(id)
+	if _inv_sort_by_name:
+		ids.sort_custom(func(a: String, b: String) -> bool: return String(Game.RESOURCE_NAMES[a]) < String(Game.RESOURCE_NAMES[b]))
+	if not _inv_selected in ids:
+		_inv_selected = ids[0] if not ids.is_empty() else ""
+	# Una casilla por cada SLOT_SIZE unidades de cada objeto.
+	var slots := []
+	for id in ids:
+		var left := int(Game.inventory[id])
+		while left > 0:
+			slots.append([id, mini(left, Game.SLOT_SIZE)])
+			left -= Game.SLOT_SIZE
+	for child in inventory_grid.get_children():
+		inventory_grid.remove_child(child)
+		child.queue_free()
+	for i in maxi(total, slots.size()):
+		inventory_grid.add_child(_inventory_slot(slots[i] if i < slots.size() else []))
+	_refresh_inventory_detail()
+	_refresh_equipment()
+
+
+func _inventory_slot(slot: Array) -> Button:
+	var button := Button.new()
+	button.custom_minimum_size = SLOT_SIZE
+	button.focus_mode = Control.FOCUS_NONE
+	if slot.is_empty():
+		button.disabled = true
+		return button
+	var id: String = slot[0]
+	button.toggle_mode = true
+	button.button_pressed = id == _inv_selected
+	button.tooltip_text = Game.RESOURCE_NAMES[id]
+	button.pressed.connect(_select_item.bind(id))
+	button.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.double_click and event.button_index == MOUSE_BUTTON_LEFT:
+			_use_item(id))
+	var icon := TextureRect.new()
+	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	icon.offset_left = 6
+	icon.offset_top = 6
+	icon.offset_right = -6
+	icon.offset_bottom = -6
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.texture = icons.textures.get(id)
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(icon)
+	var count := Label.new()
+	count.text = str(slot[1])
+	count.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	count.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	count.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	count.offset_right = -5
+	count.offset_bottom = -2
+	count.add_theme_font_size_override("font_size", 15)
+	count.add_theme_color_override("font_outline_color", Color.BLACK)
+	count.add_theme_constant_override("outline_size", 4)
+	count.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(count)
+	return button
+
+
+func _select_item(id: String) -> void:
+	_inv_selected = id
+	_inv_confirm = ""
+	_refresh_inventory_panel()
+
+
+## Ficha del objeto elegido: nombre, para qué sirve y qué se puede hacer.
+func _refresh_inventory_detail() -> void:
+	for child in inventory_detail.get_children():
+		inventory_detail.remove_child(child)
+		child.queue_free()
+	var id := _inv_selected
+	if id == "":
+		var empty := Label.new()
+		empty.text = "La mochila está vacía."
+		empty.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
+		inventory_detail.add_child(empty)
+	else:
+		var head := HBoxContainer.new()
+		head.add_theme_constant_override("separation", 10)
+		var icon := TextureRect.new()
+		icon.custom_minimum_size = Vector2(64, 64)
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.texture = icons.textures.get(id)
+		head.add_child(icon)
+		var name_label := Label.new()
+		name_label.text = "%s\nLlevas %d" % [Game.RESOURCE_NAMES[id], Game.inventory[id]]
+		name_label.add_theme_font_size_override("font_size", 16)
+		head.add_child(name_label)
+		inventory_detail.add_child(head)
+		var info := Label.new()
+		info.text = _item_info(id)
+		info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		info.custom_minimum_size.x = 250
+		info.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8))
+		inventory_detail.add_child(info)
+		var buttons := HBoxContainer.new()
+		if Game.is_usable(id):
+			buttons.add_child(_inventory_button("Usar", _use_item.bind(id)))
+		buttons.add_child(_inventory_button("Tirar 1", _throw_item.bind(id, 1)))
+		buttons.add_child(_inventory_button(
+				"¿Seguro? Otra vez" if _inv_confirm == id else "Tirar todo", _throw_item.bind(id, -1)))
+		inventory_detail.add_child(buttons)
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	inventory_detail.add_child(spacer)
+	inventory_detail.add_child(_inventory_button(
+			"Orden: por nombre" if _inv_sort_by_name else "Orden: por tipo", _toggle_sort))
+
+
+func _inventory_button(text: String, action: Callable) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.focus_mode = Control.FOCUS_NONE
+	button.pressed.connect(action)
+	return button
+
+
+func _toggle_sort() -> void:
+	_inv_sort_by_name = not _inv_sort_by_name
+	_refresh_inventory_panel()
+
+
+func _use_item(id: String) -> void:
+	_inv_confirm = ""
+	if Game.is_usable(id):
+		Game.use_item(id)
+	_refresh_inventory_panel()
+
+
+## Tirar destruye el objeto. Con amount -1 se tira todo, y hay que pulsar dos veces.
+func _throw_item(id: String, amount: int) -> void:
+	var have := int(Game.inventory.get(id, 0))
+	if amount < 0:
+		if _inv_confirm != id:
+			_inv_confirm = id
+			_refresh_inventory_panel()
+			return
+		amount = have
+	_inv_confirm = ""
+	if have <= 0:
+		return
+	Game.add_item(id, -mini(amount, have))
+	Sfx.play("clic")
+	_refresh_inventory_panel()
+
+
+func _item_info(id: String) -> String:
+	match id:
+		"botella":
+			return "Usar: +%d de oxígeno." % int(Game.BOTTLE_REFILL)
+		"racion", "verdura", "guiso":
+			var text := "Usar: quita %d de hambre." % int(Game.FOODS[id])
+			return text + (" También sirve para el guiso." if id == "verdura" else "")
+		"semillas":
+			return "Material: plantar musgo, bancales y árboles."
+		"chip":
+			return "Se gasta en un terminal de investigación."
+		"titanio", "cuarzo", "iridio":
+			return "Material avanzado de cuevas y cráteres."
+		"placa", "circuito":
+			return "Componente de las tecnologías avanzadas."
+	return "Material de construcción y fabricación."
+
+
+## Lo que se lleva puesto, que no ocupa casillas.
+func _refresh_equipment() -> void:
+	for child in inventory_equipment.get_children():
+		inventory_equipment.remove_child(child)
+		child.queue_free()
+	var drill := Game.drill()
+	_equipment_cell(String(drill["id"]) if drill["id"] != "" else "taladro", drill["name"],
+			"Vacía un depósito en %.2f s y recoges x%d" % [drill["time"], drill["yield"]])
+	var pack: Dictionary = Game.BACKPACKS[Game.backpack_level]
+	_equipment_cell(String(pack["id"]) if pack["id"] != "" else "bolsa", pack["name"], "%d casillas" % pack["slots"])
+	if Game.has_tank:
+		_equipment_cell("tanque", "Tanque de oxígeno", "Reserva de %d" % int(Game.TANK_O2_MAX))
+	if Game.has_jetpack:
+		_equipment_cell("jetpack", "Propulsores", "Espacio en el aire para volar")
+	if Game.has_flashlight:
+		var button := _equipment_cell("linterna", "Linterna (L)", "Para ver en las cuevas", true)
+		button.text = "Apagar" if Game.flashlight_on else "Encender"
+		button.pressed.connect(func() -> void:
+			Game.toggle_flashlight()
+			_refresh_equipment())
+
+
+## Una pieza del equipo: icono, nombre y su efecto. Con "toggle" lleva además
+## un botón, que se devuelve.
+func _equipment_cell(icon_id: String, title: String, effect: String, toggle := false) -> Button:
+	var box := VBoxContainer.new()
+	box.custom_minimum_size.x = 150
+	box.add_theme_constant_override("separation", 2)
+	var icon := TextureRect.new()
+	icon.custom_minimum_size = Vector2(48, 48)
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.texture = icons.textures.get(icon_id)
+	box.add_child(icon)
+	box.add_child(_small_label(title, 13))
+	var effect_label := _small_label(effect, 11)
+	effect_label.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
+	box.add_child(effect_label)
+	var button: Button = null
+	if toggle:
+		button = Button.new()
+		button.focus_mode = Control.FOCUS_NONE
+		box.add_child(button)
+	inventory_equipment.add_child(box)
+	return button
+
+
 func _build_locker_panel() -> void:
 	var parts := _panel("")
 	locker_panel = parts[0]
@@ -420,6 +718,8 @@ func _close_panel() -> void:
 func _refresh_panel() -> void:
 	if _open_panel == menu_panel:
 		_refresh_menu_grid()
+	elif _open_panel == inventory_panel:
+		_refresh_inventory_panel()
 	elif _open_panel == locker_panel:
 		_refresh_locker()
 	elif _open_panel == research_panel:
@@ -428,20 +728,7 @@ func _refresh_panel() -> void:
 		_refresh_map()
 
 
-func _refresh_inventory() -> void:
-	var lines := PackedStringArray()
-	for id in Game.inventory:
-		if int(Game.inventory[id]) > 0 or not id in HIDDEN_WHEN_EMPTY:
-			lines.append("%s: %d" % [Game.RESOURCE_NAMES[id], Game.inventory[id]])
-	if Game.drill_level > 0:
-		lines.append(Game.drill()["name"])
-	if Game.has_tank:
-		lines.append("Tanque de oxígeno")
-	if Game.has_jetpack:
-		lines.append("Propulsores")
-	if Game.has_flashlight:
-		lines.append("Linterna (L)")
-	inventory_label.text = "\n".join(lines)
+func _on_inventory_changed() -> void:
 	if _open_panel:
 		_refresh_panel()
 
@@ -485,8 +772,8 @@ func _on_build_menu_requested() -> void:
 
 
 func _on_icons_finished() -> void:
-	if _open_panel == menu_panel:
-		_refresh_menu_grid()
+	if _open_panel:
+		_refresh_panel()
 
 
 ## Todas las secciones seguidas, cada una con su título y una casilla por
@@ -572,6 +859,8 @@ func _owned(id: String) -> bool:
 	match id:
 		"taladro", "taladro_termico", "taladro_plasma":
 			return Game.drill_level >= Game.drill_index(id)
+		"mochila", "mochila_reforzada", "mochila_aleacion":
+			return Game.backpack_level >= Game.backpack_index(id)
 		"tanque":
 			return Game.has_tank
 		"jetpack":
@@ -596,15 +885,23 @@ func _tooltip(id: String) -> String:
 		"jetpack":
 			tip += "\nMantén Espacio en el aire para volar un poco"
 		"botella":
-			tip += "\nQ para respirar de ella"
+			tip += "\nSe usa desde el inventario (I) para respirar de ella"
 		"semillas":
 			tip += "\nSirven para plantar musgo, bancales y árboles"
 		"guiso":
-			tip += "\nF para comer: llena la barra entera"
+			tip += "\nSe come desde el inventario (I): llena la barra entera"
+		"mochila", "mochila_reforzada", "mochila_aleacion":
+			var pack: Dictionary = Game.BACKPACKS[Game.backpack_index(id)]
+			tip += "\n%d casillas de %d unidades (ahora %d)" % [pack["slots"], Game.SLOT_SIZE, Game.slots_max()]
+			var previous := Game.backpack_index(id) - 1
+			if Game.backpack_level < previous:
+				tip += "\nAntes necesitas la %s" % String(Game.BACKPACKS[previous]["name"]).to_lower()
 		"linterna":
 			tip += "\nL para encenderla o apagarla; dentro de las cuevas no se ve nada sin ella"
 		"placa", "circuito":
 			tip += "\nComponente de las tecnologías avanzadas"
+	if recipe["kind"] == "consumable" and Game.room_for(id) < 1:
+		tip += "\nMochila llena: tira o guarda algo (I)"
 	if _driving and Game.is_placeable(id):
 		tip += "\nBájate del róver para construir"
 	if recipe["kind"] == "vehicle":
@@ -849,7 +1146,7 @@ func _refresh_locker() -> void:
 	for id in items:
 		var stored := int(items[id])
 		if stored > 0:
-			locker_contents.add_child(_locker_row(id, stored, stored, false))
+			locker_contents.add_child(_locker_row(id, stored, mini(stored, Game.room_for(id)), false))
 
 
 func _small_heading(text: String) -> Label:
@@ -884,7 +1181,11 @@ func _move_items(id: String, amount: int, storing: bool) -> void:
 		items[id] = int(items.get(id, 0)) + amount
 		Game.add_item(id, -amount)
 	else:
-		amount = mini(amount, int(items.get(id, 0)))
+		# Solo lo que quepa en la mochila.
+		amount = mini(amount, mini(int(items.get(id, 0)), Game.room_for(id)))
+		if amount <= 0:
+			_show_message(Game.FULL_MESSAGE)
+			return
 		items[id] = int(items[id]) - amount
 		if int(items[id]) <= 0:
 			items.erase(id)
